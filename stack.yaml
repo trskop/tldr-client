@@ -1,0 +1,27 @@
+# For advanced use and comprehensive documentation of the format, please see:
+# https://docs.haskellstack.org/en/stable/yaml_configuration/
+
+# GHC 8.10.4
+resolver:
+  url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/18/5.yaml
+
+packages:
+  - '.'
+
+extra-deps:
+# - aeson-yaml-1.1.0.0
+  - country-codes-0.1.4
+  - dhall-1.39.0
+# - haskeline-0.8.1.2
+# - prettyprinter-1.7.0
+# - repline-0.4.0.0
+  - tldr-0.9.1
+
+    # Dependency of mainplate:
+  - git: https://github.com/trskop/host-and-port.git
+    commit: f0ac77ce78887dbce9a140cf39ea6af801dd2438
+
+  - git: https://github.com/trskop/mainplate.git
+    commit: 6ed414df4a5f649a2b773f12487de79792a9861c
+
+allow-newer: false
