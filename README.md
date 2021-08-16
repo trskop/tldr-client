@@ -39,8 +39,3 @@ More complicated example that can be turned into a library can be found in
 
 [ ] Use index file/DB instead of guessing paths. This should allow us to do
     more advanced search.
-
-[ ] System cache for pages. Intention is to be able to use pages that were
-    pre-installed, while allowing users to have their own cache with more
-    recent pages and/or additional page sources. This is also useful for Nix
-    environments and monorepos.
