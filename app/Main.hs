@@ -25,7 +25,7 @@ import Data.String (String, fromString)
 import Data.Version (makeVersion)
 import System.Environment (lookupEnv)
 import System.Exit (exitSuccess)
-import System.IO (IO)
+import System.IO (FilePath, IO)
 
 import qualified Data.Either.Validation as Validation
   ( Validation(Failure, Success)
@@ -38,6 +38,7 @@ import qualified Options.Applicative as Options
     , eitherReader
     , execParser
     , flag'
+    , footer
     , fullDesc
     , header
     , help
@@ -60,7 +61,7 @@ import System.Directory
 
 import Configuration (decodeConfiguration, mkDefConfiguration)
 import Client
-    ( Action(List, Render, Update)
+    ( Action(ClearCache, List, Render, Update)
     , SomePlatform
     , client
     , parsePlatform
@@ -123,15 +124,17 @@ parseOptions
     -- ^ Construct default configuration if there is no configuration
     -- available.
     -> IO (config, Action)
-parseOptions decoder@Dhall.Decoder{expected} mkDef =
-    parseOptions' >>= \case
+parseOptions decoder@Dhall.Decoder{expected} mkDef = do
+    configFile <- getXdgDirectory XdgConfig "tldr/config.dhall"
+
+    parseOptions' configFile >>= \case
         Execute possiblyConfig action ->
-            (, action) <$> parseConfig possiblyConfig
+            (, action) <$> parseConfig configFile possiblyConfig
 
         Typecheck config -> do
             -- TODO: When there is no config file (mkDef used) then we should
             -- probably complain.
-            _ <- parseConfig config
+            _ <- parseConfig configFile config
             exitSuccess
 
         PrintType -> do
@@ -145,8 +148,8 @@ parseOptions decoder@Dhall.Decoder{expected} mkDef =
                 }
             exitSuccess
   where
-    parseConfig :: Maybe Text -> IO config
-    parseConfig possiblyExpr = do
+    parseConfig :: FilePath -> Maybe Text -> IO config
+    parseConfig configFile possiblyExpr = do
         case possiblyExpr of
             Just expr ->
                 Dhall.input decoder expr
@@ -157,8 +160,6 @@ parseOptions decoder@Dhall.Decoder{expected} mkDef =
                         Dhall.input decoder (fromString expr)
 
                     Nothing -> do
-                        let relativeConfig = "tldr/config.dhall"
-                        configFile <- getXdgDirectory XdgConfig relativeConfig
                         configExists <- doesFileExist configFile
                         if configExists
                             then
@@ -178,12 +179,17 @@ parseOptions decoder@Dhall.Decoder{expected} mkDef =
             -- This indicates a bug in the Decoder.
             throwIO err
 
-    infoMod :: Options.InfoMod a
-    infoMod = Options.fullDesc <> Options.header "Client for tldr-pages."
+    infoMod :: FilePath -> Options.InfoMod a
+    infoMod configFile = Options.fullDesc
+        <> Options.header "Client for tldr-pages."
+        <> Options.footer (footer configFile)
 
-    parseOptions' :: IO Mode
-    parseOptions' =
-        Options.execParser (Options.info (options <**> Options.helper) infoMod)
+    footer :: FilePath -> String
+    footer = ("User configuration file is read from: " <>)
+
+    parseOptions' :: FilePath -> IO Mode
+    parseOptions' configFile = Options.execParser
+        (Options.info (options <**> Options.helper) (infoMod configFile))
 
     options :: Options.Parser Mode
     options =
@@ -192,6 +198,7 @@ parseOptions decoder@Dhall.Decoder{expected} mkDef =
         <|> (   ( typecheckFlag
                 <|> (   ( updateFlag
                         <|> (   ( listFlag
+                                <|> clearCacheFlag
                                 <|> (renderAction <$> some commandArgument)
                                 )
                             <*> optional languageOption
@@ -223,6 +230,15 @@ parseOptions decoder@Dhall.Decoder{expected} mkDef =
     listAction lang platform sources cfg =
         Execute cfg (List platform lang sources)
 
+    clearCacheAction
+        :: Maybe Locale
+        -> Maybe SomePlatform
+        -> [Text]
+        -> Maybe Text
+        -> Mode
+    clearCacheAction lang platform sources cfg =
+        Execute cfg (ClearCache platform lang sources)
+
     updateAction
         :: [Text]
         -> Maybe Text
@@ -233,7 +249,7 @@ parseOptions decoder@Dhall.Decoder{expected} mkDef =
     configOption = Options.strOption
         ( Options.long "config"
         <> Options.metavar "EXPR"
-        <> Options.help "Set configration to EXPR, where EXPR is a Dhall\
+        <> Options.help "Set configuration to EXPR, where EXPR is a Dhall\
             \ expression; if application fails to parse or typecheck the EXPR\
             \ it terminates with exit code 1"
         )
@@ -256,8 +272,8 @@ parseOptions decoder@Dhall.Decoder{expected} mkDef =
     versionFlag = Options.flag' Version
         ( Options.long "version"
         <> Options.short 'v' -- Mandated by Tldr Client Specification
-        <> Options.help "Print version information and terminate with exit\
-            \ code 0"
+        <> Options.help "Print version information to standard output and\
+            \ terminate with exit code 0"
         )
 
     listFlag :: Options.Parser
@@ -273,6 +289,21 @@ parseOptions decoder@Dhall.Decoder{expected} mkDef =
         <> Options.help "Lists all the pages for the current platform to the\
             \ standard output; if '--platform=all' is specified then all pages\
             \ in all platforms are listed"
+        )
+
+    clearCacheFlag :: Options.Parser
+        (  Maybe Locale
+        -> Maybe SomePlatform
+        -> [Text]
+        -> Maybe Text
+        -> Mode
+        )
+    clearCacheFlag = Options.flag' clearCacheAction
+        ( Options.long "clear-cache"
+        <> Options.help "Clear offline cache; by default the whole cache is\
+            \ purged, but if '--source=SOURCE', '--platform=PLATFORM', or\
+            \ '--language=LANGUAGE' are specified then they limit what parts\
+            \ of the cache are removed."
         )
 
     platformOption :: Options.Parser SomePlatform
@@ -300,7 +331,7 @@ parseOptions decoder@Dhall.Decoder{expected} mkDef =
         ( Options.metavar "COMMAND"
         <> Options.help "Show pages for COMMAND. Multiple COMMANDs can be\
             \ specified, in which case they are treated as one command with\
-            \ dashesh in between. For example, \"tldr git commit\" is the same\
+            \ dashes in between. For example, \"tldr git commit\" is the same\
             \ as \"tldr git-commit\""
         )
 
@@ -317,6 +348,7 @@ parseOptions decoder@Dhall.Decoder{expected} mkDef =
     sourceOption = Options.strOption
         ( Options.long "source"
         <> Options.short 's'
+        <> Options.metavar "SOURCE"
         <> Options.help "Show, list, or update cache only for specified\
             \ SOURCEs; by default all sources are used; this option can be\
             \ used multiple times to specify multiple SOURCEs"

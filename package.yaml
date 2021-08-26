@@ -79,9 +79,10 @@ executables:
     main: Main.hs
     dependencies:
       - aeson >=1.5.2.0 && <2
-      - dhall >=1.39.0 && <2
-      - country-codes >=0.1.4 && <1
+      - bytestring
       - case-insensitive >=1.2 && <2
+      - country-codes >=0.1.4 && <1
+      - dhall >=1.39.0 && <2
       - directory
       - either >=5.0.1.1 && <6
       - filepath
@@ -91,6 +92,7 @@ executables:
       - optparse-applicative >=0.15.1.0 && <1
       - prettyprinter >=1.7.0 && <2
       - prettyprinter-ansi-terminal
+      - sqlite-simple >=0.4.16 && <1
       - temporary >=1.3 && <2
       # ^ Version 1.3 is the first one that uses random hex string in temp
       # names instead of PIDs.
@@ -99,7 +101,6 @@ executables:
       # ^ Fucntion `renderPage` takes `ColorSetting` argument since version
       # 0.9.1.
       - tldr >=0.9.1 && <1
-      - transformers
       - verbosity >=0.3 && <1
       - wreq >=0.5.3.2 && <1
       # ^ Version 0.8.3.2 is first to handle http-client >=0.6.0

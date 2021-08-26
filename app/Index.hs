@@ -1,0 +1,373 @@
+-- |
+-- Module:      Index
+-- Description: TODO: Module synopsis
+-- Copyright:   (c) 2021 Peter Trško
+-- License:     BSD3
+--
+-- Maintainer:  peter.trsko@gmail.com
+-- Stability:   experimental
+-- Portability: GHC specific language extensions; POSIX.
+--
+-- TODO: Module description.
+module Index
+    ( Entry(..)
+
+    -- * Create
+    , new
+    , newUnlessExists
+    , load
+    , indexFile
+    , exists
+
+    -- * Lookup
+    , LookupQuery(..)
+    , lookup
+
+    -- * List
+    , ListQuery(..)
+    , list
+
+    -- * Prune
+    , PruneQuery(..)
+    , prune
+    )
+  where
+
+import Control.Applicative ((<*>), pure)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Data.Bool (Bool)
+import Data.Eq (Eq)
+import Data.Foldable (concat, for_)
+import Data.Functor ((<$), (<$>))
+import Data.List.NonEmpty (NonEmpty)
+import Data.Maybe (Maybe(Just, Nothing))
+import Data.Traversable (for)
+import System.IO (FilePath)
+import Text.Show (Show)
+
+import Data.ByteString (ByteString)
+import Data.Text (Text)
+import qualified Database.SQLite.Simple.FromRow as SQLite (RowParser)
+import qualified Database.SQLite.Simple.ToField as SQLite (toField)
+import qualified Database.SQLite.Simple as SQLite
+    ( Connection
+    , FromRow(fromRow)
+    , Only(Only)
+    , SQLData
+    , ToRow(toRow)
+    , executeMany
+    , execute
+    , execute_
+    , query
+    , query_
+    , withConnection
+    )
+import System.Directory (doesFileExist)
+import System.FilePath ((</>))
+
+
+data Entry = Entry
+    { source :: Text
+    , command :: Text
+    , platform :: Text
+    , locale :: Text
+    , content :: ByteString
+    , filePath :: Maybe FilePath
+    }
+  deriving stock (Eq, Show)
+
+instance SQLite.FromRow Entry where
+    fromRow :: SQLite.RowParser Entry
+    fromRow = do
+        (source, command, platform, locale, content, filePath) <- SQLite.fromRow
+        pure Entry{..}
+
+instance SQLite.ToRow Entry where
+    toRow :: Entry -> [SQLite.SQLData]
+    toRow Entry{..} =
+        [ SQLite.toField source
+        , SQLite.toField command
+        , SQLite.toField platform
+        , SQLite.toField locale
+        , SQLite.toField content
+        , SQLite.toField filePath
+        ]
+
+init :: MonadIO m => SQLite.Connection -> m ()
+init connection = liftIO do
+    SQLite.execute_ connection
+        "CREATE TABLE IF NOT EXISTS pages_index\n\
+        \  ( sequenceId INTEGER PRIMARY KEY\n\
+        \  , source TEXT NOT NULL\n\
+        \  , command TEXT NOT NULL\n\
+        \  , platform TEXT NOT NULL\n\
+        \  , locale TEXT NOT NULL\n\
+        \  , content TEXT NOT NULL\n\
+        \  , file_path TEXT NULL\n\
+        \  );"
+
+indexFile :: FilePath -> FilePath
+indexFile cacheDirectory = cacheDirectory </> "index.sqlite"
+
+exists :: MonadIO m => FilePath -> m Bool
+exists cacheDirectory = liftIO do
+    doesFileExist (indexFile cacheDirectory)
+
+load :: MonadIO m => SQLite.Connection -> [Entry] -> m ()
+load connection entries = liftIO do
+    SQLite.executeMany connection
+        "INSERT INTO\
+        \ pages_index (source, command, platform, locale, content, file_path)\
+        \ VALUES (?, ?, ?, ?, ?, ?)"
+        entries
+
+new :: MonadIO m => FilePath -> m FilePath
+new cacheDirectory = liftIO do
+    let dbFile = indexFile cacheDirectory
+    dbFile <$ SQLite.withConnection dbFile init
+
+newUnlessExists :: MonadIO m => FilePath -> m FilePath
+newUnlessExists cacheDirectory = liftIO do
+    indexExists <- exists cacheDirectory
+    if indexExists
+        then pure (indexFile cacheDirectory)
+        else Index.new cacheDirectory
+
+data LookupQuery = LookupQuery
+    { command :: Text
+    , sources :: Maybe (NonEmpty Text)
+    , platforms :: Maybe (NonEmpty Text)
+    , locales :: Maybe (NonEmpty Text)
+    }
+  deriving stock (Eq, Show)
+
+-- TODO: This implementation is very naive, maybe there's a much better way of
+-- doing this.
+lookup :: MonadIO m => SQLite.Connection -> LookupQuery -> m [Entry]
+lookup connection LookupQuery{..} = liftIO if
+  | Nothing <- sources, Nothing <- platforms, Nothing <- locales ->
+        SQLite.query connection
+            "SELECT source, command, platform, locale, content, file_path\
+            \ FROM pages_index\
+            \ WHERE command = ?"
+            (SQLite.Only command)
+
+  | Just ss <- sources, Nothing <- platforms, Nothing <- locales ->
+        concat <$> for ss \source ->
+            SQLite.query connection
+                "SELECT source, command, platform, locale, content, file_path\
+                \ FROM pages_index\
+                \ WHERE command = ?\
+                \   AND source = ?"
+                (command, source)
+
+  | Nothing <- sources, Just ps <- platforms, Nothing <- locales ->
+        concat <$> for ps \platform ->
+            SQLite.query connection
+                "SELECT source, command, platform, locale, content, file_path\
+                \ FROM pages_index\
+                \ WHERE command = ?\
+                \   AND platform = ?"
+                (command, platform)
+
+  | Nothing <- sources, Nothing <- platforms, Just ls <- locales ->
+        concat <$> for ls \locale ->
+            SQLite.query connection
+                "SELECT source, command, platform, locale, content, file_path\
+                \ FROM pages_index\
+                \ WHERE command = ?\
+                \   AND locale = ?"
+                (command, locale)
+
+  | Nothing <- sources, Just ps <- platforms, Just ls <- locales -> do
+        concat <$> for ((,) <$> ps <*> ls) \(platform, locale) ->
+            SQLite.query connection
+                "SELECT source, command, platform, locale, content, file_path\
+                \ FROM pages_index\
+                \ WHERE command = ?\
+                \   AND platform = ?\
+                \   AND locale = ?"
+                (command, platform, locale)
+
+  | Just ss <- sources, Nothing <- platforms, Just ls <- locales -> do
+        concat <$> for ((,) <$> ss <*> ls) \(source, locale) ->
+            SQLite.query connection
+                "SELECT source, command, platform, locale, content, file_path\
+                \ FROM pages_index\
+                \ WHERE command = ?\
+                \   AND source = ?\
+                \   AND locale = ?"
+                (command, source, locale)
+
+  | Just ss <- sources, Just ps <- platforms, Nothing <- locales -> do
+        concat <$> for ((,) <$> ss <*> ps) \(source, platform) ->
+            SQLite.query connection
+                "SELECT source, command, platform, locale, content, file_path\
+                \ FROM pages_index\
+                \ WHERE command = ?\
+                \   AND source = ?\
+                \   AND platform = ?"
+                (command, source, platform)
+
+  | Just ss <- sources, Just ps <- platforms, Just ls <- locales -> do
+        let params = (,,) <$> ss <*> ps <*> ls
+        concat <$> for params \(source, platform, locale) ->
+            SQLite.query connection
+                "SELECT source, command, platform, locale, content, file_path\
+                \ FROM pages_index\
+                \ WHERE command = ?\
+                \   AND source = ?\
+                \   AND platform = ?\
+                \   AND locale = ?"
+                (command, source, platform, locale)
+
+data ListQuery = ListQuery
+    { sources :: Maybe (NonEmpty Text)
+    , platforms :: Maybe (NonEmpty Text)
+    , locales :: Maybe (NonEmpty Text)
+    }
+  deriving stock (Eq, Show)
+
+-- TODO: This implementation is very naive, maybe there's a much better way of
+-- doing this.
+list :: MonadIO m => SQLite.Connection -> ListQuery -> m [Entry]
+list connection ListQuery{..} = liftIO if
+  | Nothing <- sources, Nothing <- platforms, Nothing <- locales ->
+        SQLite.query_ connection
+            "SELECT source, command, platform, locale, content, file_path\
+            \ FROM pages_index"
+
+  | Just ss <- sources, Nothing <- platforms, Nothing <- locales ->
+        concat <$> for ss \source ->
+            SQLite.query connection
+                "SELECT source, command, platform, locale, content, file_path\
+                \ FROM pages_index\
+                \ WHERE source = ?"
+                (SQLite.Only source)
+
+  | Nothing <- sources, Just ps <- platforms, Nothing <- locales ->
+        concat <$> for ps \platform ->
+            SQLite.query connection
+                "SELECT source, command, platform, locale, content, file_path\
+                \ FROM pages_index\
+                \ WHERE platform = ?"
+                (SQLite.Only platform)
+
+  | Nothing <- sources, Nothing <- platforms, Just ls <- locales ->
+        concat <$> for ls \locale ->
+            SQLite.query connection
+                "SELECT source, command, platform, locale, content, file_path\
+                \ FROM pages_index\
+                \ WHERE locale = ?"
+                (SQLite.Only locale)
+
+  | Nothing <- sources, Just ps <- platforms, Just ls <- locales -> do
+        concat <$> for ((,) <$> ps <*> ls) \(platform, locale) ->
+            SQLite.query connection
+                "SELECT source, command, platform, locale, content, file_path\
+                \ FROM pages_index\
+                \ WHERE platform = ?\
+                \   AND locale = ?"
+                (platform, locale)
+
+  | Just ss <- sources, Nothing <- platforms, Just ls <- locales -> do
+        concat <$> for ((,) <$> ss <*> ls) \(source, locale) ->
+            SQLite.query connection
+                "SELECT source, command, platform, locale, content, file_path\
+                \ FROM pages_index\
+                \ WHERE source = ?\
+                \   AND locale = ?"
+                (source, locale)
+
+  | Just ss <- sources, Just ps <- platforms, Nothing <- locales -> do
+        concat <$> for ((,) <$> ss <*> ps) \(source, platform) ->
+            SQLite.query connection
+                "SELECT source, command, platform, locale, content, file_path\
+                \ FROM pages_index\
+                \ WHERE source = ?\
+                \   AND platform = ?"
+                (source, platform)
+
+  | Just ss <- sources, Just ps <- platforms, Just ls <- locales -> do
+        let params = (,,) <$> ss <*> ps <*> ls
+        concat <$> for params \(source, platform, locale) ->
+            SQLite.query connection
+                "SELECT source, command, platform, locale, content, file_path\
+                \ FROM pages_index\
+                \ WHERE source = ?\
+                \   AND platform = ?\
+                \   AND locale = ?"
+                (source, platform, locale)
+
+data PruneQuery
+    = PruneQuery
+        { sources :: Maybe (NonEmpty Text)
+        , locales :: Maybe (NonEmpty Text)
+        , platforms :: Maybe (NonEmpty Text)
+        }
+  deriving stock (Eq, Show)
+
+prune :: MonadIO m => SQLite.Connection -> PruneQuery -> m ()
+prune connection PruneQuery{..} = liftIO if
+  | Nothing <- sources
+  , Nothing <- locales
+  , Nothing <- platforms ->
+        SQLite.execute_ connection "DELETE FROM pages_index"
+
+  | Nothing <- sources
+  , Nothing <- locales
+  , Just platforms' <- platforms ->
+        for_ platforms' \platform ->
+            SQLite.execute connection
+                "DELETE FROM pages_index WHERE platform = ?"
+                (SQLite.Only platform)
+
+  | Nothing <- sources
+  , Just locales' <- locales
+  , Nothing <- platforms ->
+        for_ locales' \locale ->
+            SQLite.execute connection
+                "DELETE FROM pages_index WHERE locale = ?"
+                (SQLite.Only locale)
+
+  | Nothing <- sources
+  , Just locales' <- locales
+  , Just platforms' <- platforms ->
+        for_ ((,) <$> locales' <*> platforms') \(locale, platform) ->
+            SQLite.execute connection
+                "DELETE FROM pages_index WHERE locale = ? AND platform = ?"
+                (locale, platform)
+
+  | Just sources' <- sources
+  , Nothing <- locales
+  , Nothing <- platforms ->
+        for_ sources' \source ->
+            SQLite.execute connection
+                "DELETE FROM pages_index WHERE source = ?"
+                (SQLite.Only source)
+
+  | Just sources' <- sources
+  , Nothing <- locales
+  , Just platforms' <- platforms ->
+        for_ ((,) <$> sources' <*> platforms') \(source, platform) ->
+            SQLite.execute connection
+                "DELETE FROM pages_index WHERE source = ? AND platform = ?"
+                (source, platform)
+
+  | Just sources' <- sources
+  , Just locales' <- locales
+  , Nothing <- platforms ->
+        for_ ((,) <$> sources' <*> locales') \(source, locale) ->
+            SQLite.execute connection
+                "DELETE FROM pages_index WHERE source = ? AND locale = ?"
+                (source, locale)
+
+  | Just sources' <- sources
+  , Just locales' <- locales
+  , Just platforms' <- platforms -> do
+        let params = (,,) <$> sources' <*> locales' <*> platforms'
+        for_ params \(source, locale, platform) ->
+            SQLite.execute connection
+                "DELETE FROM pages_index WHERE\
+                \ source = ? AND locale = ? AND platform = ?"
+                (source, locale, platform)

@@ -23,10 +23,11 @@ module Configuration
 
 import Control.Applicative ((<|>), pure)
 import Data.Eq (Eq)
+import Data.Foldable (concatMap)
 import Data.Function ((.))
 import Data.Functor ((<$>))
 import Data.List.NonEmpty (NonEmpty((:|)))
-import Data.Maybe (Maybe(Nothing), maybe)
+import Data.Maybe (Maybe(Just, Nothing), maybe)
 import Data.Semigroup ((<>))
 import Data.String (String)
 import GHC.Generics (Generic)
@@ -131,16 +132,26 @@ getCacheDirectory :: Configuration -> IO FilePath
 getCacheDirectory Configuration{cacheDirectory} =
     maybe (getXdgDirectory XdgCache "tldr-client") pure cacheDirectory
 
+-- TODO: This should be returning NonEmpty Locale.
 getLocales :: Configuration -> Maybe Locale -> IO [Locale]
-getLocales Configuration{verbosity, locale} override =
+getLocales Configuration{verbosity, locale} override = do
     -- TODO: This doesn't follow the specification yet!
-    maybe (pure <$> lookupLang verbosity defaultLocale) (pure . pure)
+    ls <- maybe (pure <$> lookupLang verbosity defaultLocale) (pure . pure)
         (override <|> locale)
+    pure (concatMap @[] generaliseLocale ls)
   where
+    defaultLocale :: Locale
     defaultLocale = Locale
         { language = LanguageCode.EN
         , country = Nothing
         }
+
+    generaliseLocale :: Locale -> [Locale]
+    generaliseLocale = \case
+        l@Locale{country = Just _} ->
+            [l, l{country = Nothing}]
+        l ->
+            [l]
 
 mkDefConfiguration :: IO Configuration
 mkDefConfiguration = do

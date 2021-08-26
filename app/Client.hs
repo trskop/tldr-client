@@ -1,6 +1,6 @@
 -- |
--- Module:      TldrClient
--- Description: TODO: Module synopsis
+-- Module:      Client
+-- Description: Tldr pages client logic
 -- Copyright:   (c) 2021 Peter Trško
 -- License:     BSD3
 --
@@ -8,7 +8,7 @@
 -- Stability:   experimental
 -- Portability: GHC specific language extensions; POSIX.
 --
--- TODO: Module description.
+-- Tldr pages client logic.
 module Client
     ( client
     , Action(..)
@@ -19,26 +19,33 @@ module Client
   where
 
 import Control.Applicative ((*>), pure)
-import Control.Exception (SomeException, displayException, try)
-import Control.Monad (guard, when)
-import Control.Monad.IO.Class (liftIO)
+import Control.Exception
+    ( Exception(displayException)
+    , SomeException
+    , onException
+    , throwIO
+    , try
+    )
+import Control.Monad (when)
 import Data.Bool (Bool(True), (&&), not)
 import qualified Data.Char as Char (toLower)
 import Data.Either (Either(Left, Right))
 import Data.Eq (Eq, (/=))
-import Data.Foldable (asum, concatMap, for_, length, null)
-import Data.Function (($), (.), flip)
-import Data.Functor ((<$), (<$>), (<&>))
+import Data.Foldable (for_, length, null)
+import Data.Function (($), (.))
+import Data.Functor ((<$>), (<&>))
 import qualified Data.List as List (elem, filter, intercalate, notElem)
+import Data.List.NonEmpty (NonEmpty((:|)), nonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty (head, toList)
-import Data.Maybe (Maybe(Just, Nothing), fromMaybe)
+import Data.Maybe (Maybe(Just, Nothing), fromMaybe, listToMaybe)
 import Data.Ord ((>), (>=))
 import Data.Semigroup ((<>))
-import Data.String (String)
+import Data.String (String, fromString, unlines)
 import System.Exit (exitFailure)
 import System.IO
     ( FilePath
     , IO
+    , hClose
     , hFlush
     , hPrint
     , hPutStr
@@ -47,7 +54,7 @@ import System.IO
     , stdout
     )
 import System.Info (os)
-import Text.Show (Show)
+import Text.Show (Show, show)
 
 import qualified Codec.Archive.Zip as Zip
     ( ZipOption(OptDestination)
@@ -55,13 +62,13 @@ import qualified Codec.Archive.Zip as Zip
     , toArchive
     )
 import Control.Lens (view)
-import Control.Monad.Trans.Maybe (runMaybeT)
+import qualified Data.ByteString as ByteString (hPutStr)
 import qualified Data.CaseInsensitive as CI (mk)
-import qualified Data.LanguageCodes as LanguageCode (ISO639_1(EN))
 --import qualified Data.Output.Colour as ColourOutput (ColourOutput(Auto))
 import Data.Text (Text)
 import qualified Data.Text as Text (intercalate, unpack)
 import qualified Data.Verbosity as Verbosity (Verbosity(Annoying, Silent))
+import qualified Database.SQLite.Simple as SQLite (withConnection)
 import Network.Wreq (get, responseBody)
 import System.Directory
     ( createDirectoryIfMissing
@@ -70,24 +77,38 @@ import System.Directory
     , renameDirectory
     )
 import System.FilePath ((<.>), (</>))
-import System.IO.Temp (withTempDirectory)
+import System.IO.Temp (withTempDirectory, withTempFile)
 import qualified Tldr (renderPage)
 import qualified Tldr.Types as Tldr (ColorSetting({-NoColor,-} UseColor))
 
 import Configuration
     ( Configuration(Configuration, sources, verbosity)
-    , Source(Source, location, name)
+    , Source(Source, format, location, name)
     , SourceLocation(Local, Remote)
+    , SourceFormat(TldrPagesWithIndex, TldrPagesWithoutIndex)
     , getCacheDirectory
     , getLocales
     )
+import qualified Index
+    ( Entry(..)
+    , ListQuery(..)
+    , LookupQuery(..)
+    , PruneQuery(..)
+    , list
+    , load
+    , lookup
+    , newUnlessExists
+    , prune
+    )
 import Locale (Locale(..), localeToText)
+import qualified TldrPagesIndex (indexAndLoad, load)
 
 
 data Action
     = Render (Maybe SomePlatform) (Maybe Locale) [Text] [String]
     | List (Maybe SomePlatform) (Maybe Locale) [Text]
     | Update [Text]
+    | ClearCache (Maybe SomePlatform) (Maybe Locale) [Text]
   deriving stock (Eq, Show)
 
 data SomePlatform
@@ -130,55 +151,80 @@ client config@Configuration{sources, verbosity} action = do
     when (verbosity >= Verbosity.Annoying) do
         hPutStrLn stderr ("DEBUG: Cache directory: " <> cacheDirectory)
 
+    createDirectoryIfMissing True cacheDirectory
+    indexFile <- Index.newUnlessExists cacheDirectory
+
     case action of
         Render platformOverride localeOverride sourcesOverride commands -> do
-            let platform = fromMaybe currentPlatform platformOverride
-
-                sourcesToUse = if null sourcesOverride
-                    then allSources
-                    else -- TODO: These may not necessarily exist. We need to
-                         -- check that they are members of allSources.
-                         Text.unpack <$> sourcesOverride
-
-                allSources = NonEmpty.toList sources <&> \Source{name} ->
-                    Text.unpack name
-
-                command = List.intercalate "-" commands
-
+            let command = List.intercalate "-" commands
             locales <- getLocales config localeOverride
-
-            -- TODO: This is not how we want to do things in the future.
-            -- Instead of finding potential paths we want to do a lookup in an
-            -- index file/DB that will give us all the options that we have.
-            -- That way we can also improve UX.
-            let paths = pageCandidatePaths cacheDirectory sourcesToUse platform
-                    locales command
+            entries <- SQLite.withConnection indexFile \connection -> do
+                let query = Index.LookupQuery
+                        { command = fromString command
+                        , sources =
+                            -- TODO: The override source may not exist (be
+                            -- configured) and we should check it to git better
+                            -- error message.
+                            nonEmpty sourcesOverride
+                        , locales =
+                            -- TODO: getLocales should actually give us
+                            -- NonEmpty.
+                            nonEmpty (localeToText <$> locales)
+                        , platforms = getPlatforms platformOverride
+                        }
+                when (verbosity >= Verbosity.Annoying) do
+                    hPutStrLn stderr ("DEBUG: Query: " <> show query)
+                Index.lookup connection query
 
             when (verbosity >= Verbosity.Annoying) do
-                hPutStrLn stderr "DEBUG: Looking for page in these paths:"
-                for_ paths \path ->
-                    hPutStrLn stderr ("  " <> path)
+                hPutStrLn stderr "DEBUG: Entries that were found:"
+                for_ entries \entry ->
+                    hPutStrLn stderr ("  " <> show entry)
 
-            possiblyPath <- runMaybeT . asum $ paths <&> \path -> do
-                fileExists <- liftIO (doesFileExist path)
-                path <$ guard fileExists
-
-            case possiblyPath of
+            case listToMaybe entries of
                 Nothing -> do
-                    when (verbosity > Verbosity.Silent) do
-                        hPutStrLn stderr
-                            ( "ERROR: Unable to find a page for command: "
-                            <> command
-                            )
+                    missingPageMessage config command
                     exitFailure
-                Just path -> do
-                    when (verbosity >= Verbosity.Annoying) do
-                        hPutStrLn stderr ("DEBUG: Page found: " <> path)
-                    Tldr.renderPage path stdout Tldr.UseColor
 
-        List _platformOverride _localeOverride _sources ->
-            -- TODO: Implement this!
-            pure ()
+                Just entry ->
+                    renderEntry config cacheDirectory entry
+
+        List platformOverride localeOverride sourcesOverride -> do
+            locales <- getLocales config localeOverride
+            entries <- SQLite.withConnection indexFile \connection -> do
+                let query = Index.ListQuery
+                        { sources =
+                            -- TODO: The override source may not exist (be
+                            -- configured) and we should check it to git better
+                            -- error message.
+                            nonEmpty sourcesOverride
+                        , locales =
+                            -- TODO: getLocales should actually give us
+                            -- NonEmpty.
+                            nonEmpty (localeToText <$> locales)
+                        , platforms = getPlatforms platformOverride
+                        }
+                when (verbosity >= Verbosity.Annoying) do
+                    hPutStrLn stderr ("DEBUG: Query: " <> show query)
+                Index.list connection query
+
+            for_ entries \entry -> do
+                let Index.Entry
+                        { source
+                        , locale
+                        , platform
+                        , command
+                        , filePath
+                        } = entry
+
+                hPutStrLn stdout case filePath of
+                    Just path -> Text.unpack source <> ": " <> path
+                    Nothing ->
+                        let path = "pages." <> Text.unpack locale
+                                </> Text.unpack platform
+                                </> Text.unpack command <.> "md"
+                                <> " (cache only)"
+                        in  Text.unpack source <> ": " <> path
 
         Update sourcesOverride -> do
             let sourcesToFetch :: [Source]
@@ -231,25 +277,92 @@ client config@Configuration{sources, verbosity} action = do
 
                 exitFailure
 
+            -- TODO: Purge sources that do not exist in configuration anymore.
+
             for_ sourcesToFetch \source@Source{name} -> do
                 when (verbosity > Verbosity.Silent) do
                     hPutStrLn stdout ("Updating '" <> Text.unpack name <> "'…")
-                updateCache config cacheDirectory source
+                updateCache UpdateCacheParams
+                  { config
+                  , cacheDirectory
+                  , indexFile
+                  , source
+                  }
+                when (verbosity > Verbosity.Silent) do
+                    hPutStrLn stdout ("… done.")
 
-updateCache :: Configuration -> FilePath -> Source -> IO ()
-updateCache _ _ Source{location = Local _} = pure ()
+        ClearCache platformOverride localeOverride sourcesOverride -> do
+            locales <- getLocales config localeOverride
+            let query = Index.PruneQuery
+                    { sources =
+                        -- TODO: The override source may not exist (be
+                        -- configured) and we should check it to git better
+                        -- error message.
+                        nonEmpty sourcesOverride
+                    , locales =
+                        -- TODO: getLocales should actually give us
+                        -- NonEmpty.
+                        nonEmpty (localeToText <$> locales)
+                    , platforms = getPlatforms platformOverride
+                    }
+            when (verbosity >= Verbosity.Annoying) do
+                hPutStrLn stderr ("DEBUG: Query: " <> show query)
+            SQLite.withConnection indexFile \connection ->
+                Index.prune connection query
+
+data FailedToLoadTldrPagesIndex = FailedToLoadTldrPagesIndex
+    { source :: String
+    , reason :: String
+    }
+  deriving stock (Show)
+
+instance Exception FailedToLoadTldrPagesIndex where
+    displayException :: FailedToLoadTldrPagesIndex -> String
+    displayException FailedToLoadTldrPagesIndex{..} =
+        "Failed to load tldr-pages index ('index.json') for source '"
+        <> source <> "': " <> reason
+
+data UpdateCacheParams = UpdateCacheParams
+    { config :: Configuration
+    , cacheDirectory :: FilePath
+    , indexFile :: FilePath
+    , source :: Source
+    }
+
+updateCache :: UpdateCacheParams -> IO ()
+
 updateCache
-  Configuration{verbosity}
-  cacheDir
-  Source{name, location = Remote urls} = do
-    createDirectoryIfMissing True cacheDir
+  UpdateCacheParams
+    { config = Configuration{verbosity}
+    , indexFile
+    , source = Source{name, format, location = Local dir}
+    } = do
+    when (verbosity > Verbosity.Silent) do
+        hPutStr stdout ("  Indexing '" <> dir <> "'… ")
+        hFlush stdout
+
+    indexSource IndexSourceParams{indexFile, source = name, format, dir}
+        `onException` when (verbosity > Verbosity.Silent) do
+            hPutStrLn stdout "failed"
+
+    when (verbosity > Verbosity.Silent) do
+        hPutStrLn stdout "success"
+
+updateCache
+  UpdateCacheParams
+    { config = Configuration{verbosity}
+    , cacheDirectory
+    , indexFile
+    , source = Source{name, format, location = Remote urls}
+    } =
+  do
     when (verbosity >= Verbosity.Annoying) do
         hPutStrLn stderr
             ( "DEBUG: Target directory for '" <> sourceName <> "': "
             <> targetDir
             )
 
-    withTempDirectory cacheDir sourceName \dir -> do
+    withTempDirectory cacheDirectory sourceName \dir -> do
         when (verbosity > Verbosity.Silent) do
             hPutStr stdout
                 ("  Downloading '" <> sourceName <> "' (" <> url <> ")… ")
@@ -272,29 +385,38 @@ updateCache
                 when (verbosity > Verbosity.Silent) do
                     hPutStrLn stdout "success"
 
-                unpack body dir
+                unpackAndIndex body dir
   where
     sourceName :: String
     sourceName = Text.unpack name
 
     targetDir :: FilePath
-    targetDir = cacheDir </> sourceName
+    targetDir = cacheDirectory </> sourceName
 
     url :: String
     url = NonEmpty.head urls
 
-    unpack body dir = do
+    unpackAndIndex body dir = do
         when (verbosity > Verbosity.Silent) do
             hPutStr stdout
-                ( "  Unpacking '" <> sourceName <> "' to " <> targetDir
-                <> "… "
+                ( "  Unpacking and indexing '" <> sourceName
+                <> "' (may take a while)… "
                 )
             hFlush stdout
         r <- try do
             Zip.extractFilesFromArchive [Zip.OptDestination dir]
                 (Zip.toArchive body)
 
+            indexSource IndexSourceParams
+                { indexFile
+                , source = name
+                , format
+                , dir
+                }
+
             removePathForcibly targetDir
+            -- TODO: This takes a lot of space. Maybe we should just not keep
+            -- it around?
             renameDirectory dir targetDir
         case r of
             Left e -> do
@@ -311,55 +433,6 @@ updateCache
                 when (verbosity > Verbosity.Silent) do
                     hPutStrLn stdout "success"
 
-pageCandidatePaths
-    :: FilePath
-    -> [String]
-    -> SomePlatform
-    -> [Locale]
-    -> String
-    -> [FilePath]
-pageCandidatePaths cacheDir sources platform locales command =
-    [ cacheDir </> s </> ("pages" <> l) </> p </> command <.> "md"
-    | s <- sources
-    , p <- platforms
-    , l <- languages
-    ]
-  where
-    languages :: [String]
-    languages = flip concatMap locales \case
-        l@Locale{language = LanguageCode.EN, country = Nothing} ->
-            -- Language "en" is the default and is not represented in the path,
-            -- but this is idiosyncratic and custom pages may want to use for
-            -- example `pages.en` instead of `pages`.
-            [renderLocale l, ""]
-
-        l@Locale{language = LanguageCode.EN, country = Just _} ->
-            -- Same as above, but in case of locales like "en_GB" we want to
-            -- try that first before defaulting to "en".
-            [renderLocale l, renderLocale l{country = Nothing}, ""]
-
-        l@Locale{country = Just _} ->
-            [renderLocale l, renderLocale l{country = Nothing}]
-
-        l ->
-            [renderLocale l]
-
-    renderLocale :: Locale -> String
-    renderLocale = ("." <>) . Text.unpack . localeToText
-
-    platforms :: [String]
-    platforms = case platform of
-        AllPlatforms ->
-            ["android", "linux", "macos", "osx", "sunos", "windows", "common"]
-        KnownPlatform p -> case p of
-            Android -> ["android", "common"]
-            Linux -> ["linux", "common"]
-            Osx -> ["osx", "common"]
-            Sunos -> ["sunos", "common"]
-            Windows -> ["windows", "common"]
-        OtherPlatform p ->
-            [p, "common"]
-
 currentPlatform :: SomePlatform
 currentPlatform = case CI.mk os of
     "darwin" -> KnownPlatform Osx
@@ -367,3 +440,113 @@ currentPlatform = case CI.mk os of
     "linux-android" -> KnownPlatform Android
     "mingw32" -> KnownPlatform Windows
     _ -> OtherPlatform (Char.toLower <$> os)
+
+getPlatforms :: Maybe SomePlatform -> Maybe (NonEmpty Text)
+getPlatforms platformOverride =
+    case fromMaybe currentPlatform platformOverride of
+        AllPlatforms ->
+            Nothing
+
+        KnownPlatform p -> Just case p of
+            Android -> "android" :| ["common"]
+            Linux -> "linux" :| ["common"]
+            Osx -> "osx" :| ["common"]
+            Sunos -> "sunos" :| ["common"]
+            Windows -> "windows" :| ["common"]
+
+        OtherPlatform p ->
+            Just (fromString p :| ["common"])
+
+renderEntry :: Configuration -> FilePath -> Index.Entry -> IO ()
+renderEntry Configuration{verbosity} cacheDirectory Index.Entry{..} =
+    case filePath of
+        Nothing ->
+            renderContent
+
+        Just relativePath -> do
+            let path = cacheDirectory </> Text.unpack source
+                    </> relativePath
+            fileExists <- doesFileExist path
+            if fileExists
+                then renderFile path
+                else do
+                    when (verbosity >= Verbosity.Annoying) do
+                        hPutStrLn stderr
+                            ( "DEBUG: "
+                            <> path
+                            <> ": File not found, using cached content."
+                            )
+                    renderContent
+  where
+    renderContent = do
+        when (verbosity >= Verbosity.Annoying) do
+            hPutStrLn stderr ("DEBUG: Page found in cache only.")
+
+        let file = Text.unpack command <.> "md"
+        withTempFile cacheDirectory file \path h -> do
+            ByteString.hPutStr h content
+            hClose h
+            Tldr.renderPage path stdout Tldr.UseColor
+
+    renderFile path = do
+        when (verbosity >= Verbosity.Annoying) do
+            hPutStrLn stderr ("DEBUG: Page found: " <> path)
+
+        Tldr.renderPage path stdout Tldr.UseColor
+
+data IndexSourceParams = IndexSourceParams
+    { indexFile :: FilePath
+    , source :: Text
+    , format :: SourceFormat
+    , dir :: FilePath
+    }
+
+indexSource :: IndexSourceParams -> IO ()
+indexSource IndexSourceParams{..} =
+    SQLite.withConnection indexFile \connection -> do
+        Index.prune connection Index.PruneQuery
+            { sources = Just (pure source)
+            , locales = Nothing
+            , platforms = Nothing
+            }
+
+        let loadBatch = Index.load connection
+        case format of
+            TldrPagesWithIndex -> do
+                TldrPagesIndex.load source dir loadBatch \reason ->
+                    throwIO FailedToLoadTldrPagesIndex
+                        { source = Text.unpack source
+                        , reason
+                        }
+
+            TldrPagesWithoutIndex ->
+                TldrPagesIndex.indexAndLoad source dir loadBatch
+
+missingPageMessage :: Configuration -> String -> IO ()
+missingPageMessage Configuration{verbosity} command =
+    when (verbosity > Verbosity.Silent) do
+        hPutStr stdout $ unlines
+            [ "Unable to find page for command '" <> command <> "'"
+            , ""
+            , "Possible reasons why this may have had happened:"
+            , ""
+            , "* There is a typo in the '" <> command <> "'. If you are unsure\
+                \ how command is spelled then try:"
+            , ""
+            , "    tldr --list"
+            , ""
+            , "* Offline cache is outdated. To fix this try running:"
+            , ""
+            , "    tldr --update"
+            , ""
+            , "* Page is really missing for that command. You can propose it's\
+                \ addition to the official tldr-pages set by going to:"
+            , ""
+            , "    " <> requestPageUrl
+            ]
+  where
+    requestPageUrl =
+        "https://github.com/tldr-pages/tldr/issues/new?title=page%20request:%20"
+        <> urlEncode command
+
+    urlEncode t = t -- TODO

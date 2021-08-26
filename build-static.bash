@@ -85,7 +85,7 @@ function main() {
 
     local -r out="${root}/out"
     local -r dest="${out}/${target}"
-    mkdir -p "${dest}/bin" "${dest}/etc"
+    mkdir -p "${dest}/bin"
     stack \
         --local-bin-path="${dest}/bin" \
         --docker --docker-image="${dockerImage}" \
@@ -93,9 +93,13 @@ function main() {
         "${flags[@]}" \
         "${target}"
 
-    # TODO: Would be nice to compose something, but it won't be as simple as
-    # this:
-    #cp "${root}/config.dhall" "${dest}/etc/${target}.dhall"
+    mkdir -p "${dest}/share/tldr" "${dest}/share/man/man1"
+    cp -r "${root}/dhall" "${dest}/config"
+    cp -r "${root}/pages" "${dest}/share/tldr"
+    pandoc --standalone --to=man \
+        --output="${dest}/share/man/man1/tldr.1" \
+        "${root}/man/tldr.1.md"
+    gzip -9 "${dest}/share/man/man1/tldr.1"
 
     local version=
     version="$(

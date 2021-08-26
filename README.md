@@ -27,7 +27,7 @@ let Config = ./dhall/Config/package.dhall in Config::{=}
 ```
 
 More complicated example that can be turned into a library can be found in
-[`config.dhall`](./config.dhall) file.
+[`dhall/config.dhall`](./dhall/config.dhall) file.
 
 
 ## Features and Limitations
@@ -37,5 +37,10 @@ More complicated example that can be turned into a library can be found in
 [] Support for multiple sources of pages including custom sources and local
     pages.
 
-[ ] Use index file/DB instead of guessing paths. This should allow us to do
-    more advanced search.
+[] Use index file/DB instead of guessing paths. This should allow us to do
+    more advanced search in the future.
+
+[ ] Support tarballs (`.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, etc.).
+
+[ ] Support removing subdirectories from a source. For example if the archive
+    has a root directory where `pages${locale}` directories are stored.
