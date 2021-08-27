@@ -10,20 +10,33 @@ and community-driven man pages.
 
 # USAGE
 
-tldr \[\--config=EXPR] \[\--language=LANGUAGE|-L LANGUAGE]
-\[--platform PLATFORM|-p PLATFORM] \[\--source=SOURCE|-s SOURCE] COMMAND
-\[SUBCOMMAND \[...]\]
+tldr
+\[\--config=*EXPR*]
+\[{\--language=*LANGUAGE*|-L *LANGUAGE*} \[...]]
+\[{\--platform=*PLATFORM*|-p *PLATFORM*} \[...]]
+\[{\--source=*SOURCE*|-s *SOURCE*} \[...]]
+*COMMAND* \[*SUBCOMMAND* \[...]\]
 
-tldr {\--list|-l} \[\--config=EXPR] \[\--language=LANGUAGE|-L LANGUAGE]
-\[--platform PLATFORM|-p PLATFORM] \[\--source=SOURCE|-s SOURCE]
+tldr {\--list|-l}
+\[\--config=*EXPR*]
+\[{\--language=*LANGUAGE*|-L *LANGUAGE*} \[...]]
+\[{\--platform=*PLATFORM*|-p *PLATFORM*} \[...]]
+\[{\--source=*SOURCE*|-s *SOURCE*} \[...]]
 
-tldr {\--update|-u} \[\--config=EXPR] \[\--language=LANGUAGE|-L LANGUAGE]
-\[--platform PLATFORM|-p PLATFORM] \[\--source=SOURCE|-s SOURCE]
+tldr {\--update|-u}
+\[\--config=*EXPR*]
+\[{\--language=*LANGUAGE*|-L *LANGUAGE*} \[...]]
+\[{\--platform=*PLATFORM*|-p *PLATFORM*} \[...]]
+\[{\--source=*SOURCE*|-s *SOURCE*} \[...]]
 
-tldr \--clear-cache \[\--config=EXPR] \[\--language=LANGUAGE|-L LANGUAGE]
-\[--platform PLATFORM|-p PLATFORM] \[\--source=SOURCE|-s SOURCE]
+tldr \--clear-cache
+\[\--config=*EXPR*]
+\[{\--language=*LANGUAGE*|-L *LANGUAGE*} \[...]]
+\[{\--platform=*PLATFORM*|-p *PLATFORM*} \[...]]
+\[{\--source=*SOURCE*|-s *SOURCE*} \[...]]
 
 tldr {\--config-print-type|\--config-typecheck}
+\[\--config=*EXPR*]
 
 tldr {\--version|-v}
 

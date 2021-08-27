@@ -8,13 +8,27 @@ Specification v1.5
 ## Usage
 
 ```
-tldr [--config=FILE] [-p PLATFORM|--platform=PLATFORM]
-    [-L LANGUAGE|--language=LANGUAGE] [--source=SOURCE [...]]
-    {-l|--list|COMMAND [...]}
-tldr {-u|--update} [--config=FILE] [--source=SOURCE [...]]
-tldr [--config=FILE] {--config-typecheck|--config-print-type}
-tldr {-v|--version}
-tldr {-h|--help}
+tldr [--config=EXPR] [{--platform=PLATFORM|-p PLATFORM} [...]]
+    [{--language=LANGUAGE|-L LANGUAGE} [...]]
+    [{--source=SOURCE|-s SOURCE} [...]] COMMAND [SUBCOMMAND [...]]
+
+tldr {--list|-l} [--config=EXPR] [{--platform=PLATFORM|-p PLATFORM} [...]]
+    [{--language=LANGUAGE|-L LANGUAGE} [...]]
+    [{--source=SOURCE|-s SOURCE} [...]]
+
+tldr {--update|-u} [--config=EXPR] [{--platform=PLATFORM|-p PLATFORM} [...]]
+    [{--language=LANGUAGE|-L LANGUAGE} [...]]
+    [{--source=SOURCE|-s SOURCE} [...]]
+
+tldr --clear-cache [--config=EXPR] [{--platform=PLATFORM|-p PLATFORM} [...]]
+    [{--language=LANGUAGE|-L LANGUAGE} [...]]
+    [{--source=SOURCE|-s SOURCE} [...]]
+
+tldr {--config-typecheck|--config-print-type} [--config=EXPR]
+
+tldr {--version|-v}
+
+tldr {--help|-h}
 ```
 
 
