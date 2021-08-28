@@ -46,15 +46,17 @@ More complicated example that can be turned into a library can be found in
 
 ## Features and Limitations
 
-[] Dhall configuration file.
+- [x] Dhall configuration file.
 
-[] Support for multiple sources of pages including custom sources and local
-    pages.
+- [x] Support for multiple sources of pages including custom sources and local
+  pages.
 
-[] Use index file/DB instead of guessing paths. This should allow us to do
-    more advanced search in the future.
+- [x] Use index file/DB instead of guessing paths. This should allow us to do
+  more advanced search in the future.
 
-[ ] Support tarballs (`.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, etc.).
+- [ ] Support tarballs (`.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, etc.).
 
-[ ] Support removing subdirectories from a source. For example if the archive
-    has a root directory where `pages${locale}` directories are stored.
+- [ ] Support removing subdirectories from a source. For example if the archive
+  has a root directory where `pages${locale}` directories are stored.
+
+- [ ] Command line completion.
