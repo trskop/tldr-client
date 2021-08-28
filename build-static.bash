@@ -113,7 +113,7 @@ function main() {
     fakeroot -- bash <<EOF
     chown -R root:root "${dest}"
     find "${dest}"        -type d -print0 | xargs -0 chmod 755
-    find "${dest}/bin"    -type f -print0 | xargs -0 chmod 644
+    find "${dest}/bin"    -type f -print0 | xargs -0 chmod 755
     find "${dest}/share"  -type f -print0 | xargs -0 chmod 644
     find "${dest}/config" -type f -print0 | xargs -0 chmod 644
     tar --directory="${out}" \
