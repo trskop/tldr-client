@@ -9,6 +9,7 @@
 # - Pandoc — https://pandoc.org/
 # - gzip — https://www.gnu.org/software/gzip/
 # - GNU tar — https://www.gnu.org/software/tar/
+# - fakeroot
 
 set -eo pipefail
 
@@ -101,7 +102,7 @@ function main() {
     pandoc --standalone --to=man \
         --output="${dest}/share/man/man1/tldr.1" \
         "${root}/man/tldr.1.md"
-    gzip -9 "${dest}/share/man/man1/tldr.1"
+    gzip --force --best "${dest}/share/man/man1/tldr.1"
 
     local version=
     version="$(
@@ -109,9 +110,16 @@ function main() {
     )"
 
     local -r arch='x86_64-linux'
+    fakeroot -- bash <<EOF
+    chown -R root:root "${dest}"
+    find "${dest}"        -type d -print0 | xargs -0 chmod 755
+    find "${dest}/bin"    -type f -print0 | xargs -0 chmod 644
+    find "${dest}/share"  -type f -print0 | xargs -0 chmod 644
+    find "${dest}/config" -type f -print0 | xargs -0 chmod 644
     tar --directory="${out}" \
         --create --xz --file="${out}/${target}-${version}-${arch}.tar.xz" \
         "${target}/"
+EOF
 }
 
 main "$@"
