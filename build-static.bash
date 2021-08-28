@@ -6,7 +6,9 @@
 # - Stack — https://docs.haskellstack.org/
 # - Docker — https://docs.docker.com/get-docker/
 # - jq — https://stedolan.github.io/jq/
-# - GNU tar
+# - Pandoc — https://pandoc.org/
+# - gzip — https://www.gnu.org/software/gzip/
+# - GNU tar — https://www.gnu.org/software/tar/
 
 set -eo pipefail
 
