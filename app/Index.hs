@@ -16,8 +16,7 @@ module Index
     , new
     , newUnlessExists
     , load
-    , indexFile
-    , exists
+    , getIndexFile
 
     -- * Lookup
     , LookupQuery(..)
@@ -30,17 +29,23 @@ module Index
     -- * Prune
     , PruneQuery(..)
     , prune
+
+    -- * Completion
+    , getLocales
+    , getPlatforms
+    , getCommands
     )
   where
 
 import Control.Applicative ((<*>), pure)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Data.Bool (Bool)
+import Data.Coerce (coerce)
 import Data.Eq (Eq)
 import Data.Foldable (concat, for_)
 import Data.Functor ((<$), (<$>))
 import Data.List.NonEmpty (NonEmpty)
-import Data.Maybe (Maybe(Just, Nothing))
+import Data.Maybe (Maybe(Just, Nothing), maybe)
+import Data.Semigroup ((<>))
 import Data.Traversable (for)
 import System.IO (FilePath)
 import Text.Show (Show)
@@ -109,9 +114,13 @@ init connection = liftIO do
 indexFile :: FilePath -> FilePath
 indexFile cacheDirectory = cacheDirectory </> "index.sqlite"
 
-exists :: MonadIO m => FilePath -> m Bool
-exists cacheDirectory = liftIO do
-    doesFileExist (indexFile cacheDirectory)
+getIndexFile :: MonadIO m => FilePath -> m (Maybe FilePath)
+getIndexFile cacheDirectory = liftIO do
+    let file = indexFile cacheDirectory
+    fileExists <- doesFileExist file
+    pure if fileExists
+        then Just file
+        else Nothing
 
 load :: MonadIO m => SQLite.Connection -> [Entry] -> m ()
 load connection entries = liftIO do
@@ -128,10 +137,8 @@ new cacheDirectory = liftIO do
 
 newUnlessExists :: MonadIO m => FilePath -> m FilePath
 newUnlessExists cacheDirectory = liftIO do
-    indexExists <- exists cacheDirectory
-    if indexExists
-        then pure (indexFile cacheDirectory)
-        else Index.new cacheDirectory
+    possiblyFile <- getIndexFile cacheDirectory
+    maybe (Index.new cacheDirectory) pure possiblyFile
 
 data LookupQuery = LookupQuery
     { command :: Text
@@ -371,3 +378,21 @@ prune connection PruneQuery{..} = liftIO if
                 "DELETE FROM pages_index WHERE\
                 \ source = ? AND locale = ? AND platform = ?"
                 (source, locale, platform)
+
+getLocales :: MonadIO m => SQLite.Connection -> Text -> m [Text]
+getLocales connection prefix = coerce @[SQLite.Only Text] <$> liftIO do
+    SQLite.query connection
+        "SELECT DISTINCT locale FROM pages_index WHERE locale LIKE ?"
+        (SQLite.Only (prefix <> "%"))
+
+getPlatforms :: MonadIO m => SQLite.Connection -> Text -> m [Text]
+getPlatforms connection prefix = coerce @[SQLite.Only Text] <$> liftIO do
+    SQLite.query connection
+        "SELECT DISTINCT platform FROM pages_index WHERE platform LIKE ?"
+        (SQLite.Only (prefix <> "%"))
+
+getCommands :: MonadIO m => SQLite.Connection -> Text -> m [Text]
+getCommands connection prefix = coerce @[SQLite.Only Text] <$> liftIO do
+    SQLite.query connection
+        "SELECT DISTINCT command FROM pages_index WHERE command LIKE ?"
+        (SQLite.Only (prefix <> "%"))

@@ -59,4 +59,4 @@ More complicated example that can be turned into a library can be found in
 - [ ] Support removing subdirectories from a source. For example if the archive
   has a root directory where `pages${locale}` directories are stored.
 
-- [ ] Command line completion.
+- [x] Command line completion.

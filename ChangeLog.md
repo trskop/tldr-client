@@ -4,7 +4,7 @@ For latest version of this document see [`ChangeLog.md on GitHub`
 
 ### HEAD (unreleased changes)
 
-* TODO
+* Command-line completion
 
 ### 0.1.0.0
 

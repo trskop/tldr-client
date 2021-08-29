@@ -92,6 +92,7 @@ executables:
       - optparse-applicative >=0.15.1.0 && <1
       - prettyprinter >=1.7.0 && <2
       - prettyprinter-ansi-terminal
+      - safe
       - sqlite-simple >=0.4.16 && <1
       - temporary >=1.3 && <2
       # ^ Version 1.3 is the first one that uses random hex string in temp
