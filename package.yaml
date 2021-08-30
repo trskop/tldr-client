@@ -88,15 +88,18 @@ executables:
       - filepath
       - iso639 >=0.1.0.3 && <1
       # ^ Language codes
-      - lens
+      - lens >=4.19 && <6
+      # ^ Version 5.* is supported as well.
       - optparse-applicative >=0.15.1.0 && <1
       - prettyprinter >=1.7.0 && <2
       - prettyprinter-ansi-terminal
-      - safe
+      - safe >=0.3.19 && <1
       - sqlite-simple >=0.4.16 && <1
       - temporary >=1.3 && <2
       # ^ Version 1.3 is the first one that uses random hex string in temp
       # names instead of PIDs.
+      - terminal-size >=0.3.2.1 && <1
+      - terminfo >=0.4.1.4 && <1
       - text >=1.2.4.0 && <2
       - tldr >=0.9.1 && <1
       # ^ Fucntion `renderPage` takes `ColorSetting` argument since version

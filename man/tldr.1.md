@@ -1,6 +1,6 @@
 % TLDR-CLIENT(1) TLDR Pages Client | TLDR Pages Client
 % Peter Trsko
-% 27th April 2021
+% 30th August 2021
 
 # NAME
 
@@ -258,6 +258,38 @@ COMMAND \[...]
     in [tldr-pages client specification version 1.5
     ](https://github.com/tldr-pages/tldr/blob/v1.5/CLIENT-SPECIFICATION.md).
 
+`NO_COLOR`
+:   This environment variable is an informal standard which is available
+    online at [no-color.org](https://no-color.org). The standard states:
+
+    > Accepting the futility of trying to reverse this trend, an informal
+    > standard is hereby proposed:
+    >
+    > All command-line software which outputs text with ANSI color added
+    > should check for the presence of a `NO_COLOR` environment variable
+    > that, when present (regardless of its value), prevents the addition of
+    > ANSI color.
+
+    To see how this affects output of this command just try (notice that the
+    environment variable is defined and has empty value, but any value will
+    do):
+
+    ```bash
+    NO_COLOR= tldr --help
+    ```
+
+    On shells like `fish` you may need to use `env`:
+
+    ```bash
+    env NO_COLOR= tldr --help
+    ```
+
+    Following can be used to temporarily disable `NO_COLOR`:
+
+    ```bash
+    env -u 'NO_COLOR' tldr --help
+    ```
+
 
 # CONFIGURATION
 
@@ -291,7 +323,7 @@ TODO
 * [Dhall configuration language](https://dhall-lang.org/)
 * [tldr-pages client specification version 1.5
   ](https://github.com/tldr-pages/tldr/blob/v1.5/CLIENT-SPECIFICATION.md)
-
+* [no-color.org](https://no-color.org)
 
 # BUGS
 

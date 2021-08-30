@@ -18,10 +18,13 @@ module Configuration
     , mkDefConfiguration
     , getCacheDirectory
     , getLocales
+    , getUseColours
+    , shouldUseColours
     )
   where
 
 import Control.Applicative ((<|>), pure)
+import Data.Bool (Bool(False))
 import Data.Eq (Eq)
 import Data.Foldable (concatMap)
 import Data.Function ((.))
@@ -31,11 +34,15 @@ import Data.Maybe (Maybe(Just, Nothing), maybe)
 import Data.Semigroup ((<>))
 import Data.String (String)
 import GHC.Generics (Generic)
-import System.IO (FilePath, IO)
+import System.IO (FilePath, Handle, IO, hIsTerminalDevice)
 import Text.Show (Show)
 
 import qualified Data.LanguageCodes as LanguageCode (ISO639_1(EN))
-import Data.Output.Colour (ColourOutput)
+import Data.Output.Colour
+    ( ColourOutput
+    , terminalSupportsColours
+    , useColoursWhen
+    )
 import qualified Data.Output.Colour as ColourOutput (ColourOutput(Auto))
 import Data.Text (Text)
 import Data.Verbosity (Verbosity)
@@ -52,6 +59,7 @@ import qualified Dhall
     , string
     , union
     )
+import System.Console.Terminfo (setupTermFromEnv)
 import System.Directory (XdgDirectory(XdgCache), getXdgDirectory)
 
 import Locale (Locale(Locale, country, language), decodeLocale, lookupLang)
@@ -177,3 +185,14 @@ mkDefConfiguration = do
     assetsUrl1 = "https://tldr.sh/assets/tldr.zip"
     assetsUrl2 =
       "https://raw.githubusercontent.com/tldr-pages/tldr-pages.github.io/master/assets/tldr.zip"
+
+getUseColours :: Configuration -> Handle -> IO Bool
+getUseColours Configuration{colourOutput} handle =
+    shouldUseColours handle colourOutput
+
+shouldUseColours :: Handle -> ColourOutput -> IO Bool
+shouldUseColours handle = useColoursWhen do
+    otputIsTerminal <- hIsTerminalDevice handle
+    if otputIsTerminal
+        then terminalSupportsColours <$> setupTermFromEnv
+        else pure False

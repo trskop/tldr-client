@@ -25,20 +25,34 @@ import Data.Eq ((==))
 import Data.Foldable (any, for_, null, traverse_)
 import Data.Function (($), (.))
 import Data.Functor ((<$), (<$>), (<&>))
+import Data.Int (Int)
 import qualified Data.List as List (concat, elem, filter, sort, take)
 import qualified Data.List.NonEmpty as NonEmpty (toList)
-import Data.Maybe (Maybe(Just, Nothing), maybe)
+import Data.Maybe (Maybe(Just, Nothing), fromMaybe, maybe)
+import Data.Monoid (mconcat)
 import Data.Semigroup ((<>))
 import Data.String (String, fromString)
 import Data.Version (makeVersion)
 import Data.Word (Word)
-import System.Environment (lookupEnv)
-import System.Exit (exitSuccess)
-import System.IO (FilePath, IO)
+import System.Environment (getArgs, getProgName, lookupEnv)
+import System.Exit
+    ( ExitCode(ExitSuccess)
+    , die
+    , exitFailure
+    , exitSuccess
+    , exitWith
+    )
+import System.IO (FilePath, IO, hIsTerminalDevice, hPutStrLn, stderr, stdout)
+import Text.Show (show)
 
 import Data.CaseInsensitive (CI)
 import qualified Data.Either.Validation as Validation
     ( Validation(Failure, Success)
+    )
+import Data.Output.Colour (ColourOutput)
+import qualified Data.Output.Colour as ColourOutput
+    ( ColourOutput(Auto)
+    , noColorEnvVar
     )
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -54,10 +68,15 @@ import qualified Dhall (Decoder(Decoder, expected), input, inputFile)
 import qualified Options.Applicative as Options
     ( InfoMod
     , Parser
+    , ParserHelp(ParserHelp, helpUsage)
+    , ParserResult(CompletionInvoked, Failure, Success)
     , ReadM
     , auto
+    , defaultPrefs
     , eitherReader
-    , execParser
+    , execFailure
+    , execFailure
+    , execParserPure
     , flag'
     , footer
     , fullDesc
@@ -74,15 +93,31 @@ import qualified Options.Applicative as Options
     , strArgument
     , strOption
     )
+import Options.Applicative.Help ((<+>))
+import qualified Options.Applicative.Help as Options
+    ( Doc
+    , braces
+    , brackets
+    , hang
+    , fillSep
+    , nest
+    , renderHelp
+    , string
+    , underline
+    , dullgreen
+    , vsep
+    )
 import qualified Prettyprinter (pretty, line)
 import qualified Prettyprinter.Render.Terminal as Prettyprinter (putDoc)
 import Safe (atDef, initMay, lastDef, lastMay)
 import qualified Database.SQLite.Simple as SQLite (withConnection)
+import System.Console.Terminal.Size as Terminal (Window(Window, width), hSize)
 import System.Directory
     ( XdgDirectory(XdgConfig)
     , doesFileExist
     , getXdgDirectory
     )
+import System.Environment.Parser (parseEnvIO)
 
 import Configuration
     ( Configuration(Configuration, sources)
@@ -90,6 +125,7 @@ import Configuration
     , decodeConfiguration
     , getCacheDirectory
     , mkDefConfiguration
+    , shouldUseColours
     )
 import Client
     ( Action(ClearCache, List, Render, Update)
@@ -106,8 +142,10 @@ import Paths_tldr_client (version)
 
 main :: IO ()
 main = do
-    (config, action) <- parseOptions decodeConfiguration mkDefConfiguration
-        completer
+    colourOutput <- parseEnvIO () (die . show) do
+        fromMaybe ColourOutput.Auto <$> ColourOutput.noColorEnvVar
+    (config, action) <- parseOptions colourOutput decodeConfiguration
+        mkDefConfiguration completer
     client config action
 
 data Mode
@@ -148,7 +186,8 @@ data Mode
 --   only deals with command-line interface.
 parseOptions
     :: forall config
-    .  Dhall.Decoder config
+    .  ColourOutput
+    -> Dhall.Decoder config
     -- ^ Dhall 'Dhall.Decoder' consists of parser and expected type. Dhall
     -- library provides one special 'Dhall.Decoder':
     --
@@ -164,10 +203,10 @@ parseOptions
     -> (config -> Shell -> Maybe Word -> [Text] -> IO ())
     -- ^ Command-line completer.
     -> IO (config, Action)
-parseOptions decoder@Dhall.Decoder{expected} mkDef completer' = do
+parseOptions colourOutput decoder@Dhall.Decoder{expected} mkDef completer' = do
     configFile <- getXdgDirectory XdgConfig "tldr/config.dhall"
 
-    parseOptions' configFile >>= \case
+    execOptionsParser configFile >>= \case
         Execute possiblyConfig action ->
             (, action) <$> parseConfig configFile possiblyConfig
 
@@ -256,9 +295,148 @@ parseOptions decoder@Dhall.Decoder{expected} mkDef completer' = do
     footer :: FilePath -> String
     footer = ("User configuration file is read from: " <>)
 
-    parseOptions' :: FilePath -> IO Mode
-    parseOptions' configFile = Options.execParser
-        (Options.info (options <**> Options.helper) (infoMod configFile))
+    execOptionsParser :: FilePath -> IO Mode
+    execOptionsParser configFile = do
+        let parserInfo =
+                Options.info (options <**> Options.helper) (infoMod configFile)
+        args <- getArgs
+        case Options.execParserPure Options.defaultPrefs parserInfo args of
+            Options.Success r ->
+                pure r
+
+            Options.Failure failure -> do
+                progName <- getProgName
+
+                let (help@Options.ParserHelp{helpUsage}, exit, _) =
+                        Options.execFailure failure progName
+
+
+                    usage
+                        ::  ( (Options.Doc -> Options.Doc)
+                            -> (Options.Doc -> Options.Doc)
+                            -> Options.Doc -> Options.Doc
+                            )
+                        -> Options.Doc
+                    usage = betterUsage (Options.string progName)
+
+                    renderHelp
+                        ::  ( (Options.Doc -> Options.Doc)
+                            -> (Options.Doc -> Options.Doc)
+                            -> Options.Doc -> Options.Doc
+                            )
+                        -> Int
+                        -> String
+                    renderHelp applyTerminalStyle cols =
+                        Options.renderHelp cols help
+                            { Options.helpUsage =
+                                -- We want to set better usage message iff the
+                                -- original usage is not empty. This way we are
+                                -- respecting options parser preferences.
+                                usage applyTerminalStyle <$ helpUsage
+                            }
+
+                    handle = if exit == ExitSuccess then stdout else stderr
+
+                applyTerminalStyle <- do
+                    useColours <- shouldUseColours handle colourOutput
+                    isTerminal <- hIsTerminalDevice handle
+                    pure \applyColours applyDecoration doc -> if
+                      | useColours -> applyColours doc
+                      | isTerminal -> applyDecoration doc
+                      | otherwise  -> doc
+                cols <- Terminal.hSize handle <&> \case
+                    Nothing -> 80
+                    Just Terminal.Window{width} -> width
+                hPutStrLn handle (renderHelp applyTerminalStyle cols)
+                exitWith exit
+
+            Options.CompletionInvoked{} ->
+                -- We don't use optparse-applicative command line completion.
+                exitFailure
+
+    betterUsage
+        :: Options.Doc
+        ->  ( (Options.Doc -> Options.Doc)
+            -> (Options.Doc -> Options.Doc)
+            -> Options.Doc -> Options.Doc
+            )
+        -> Options.Doc
+    betterUsage progName colour = Options.nest 2 $ Options.vsep
+        [ "Usage:"
+        , Options.hang 2 $ Options.fillSep
+            [ progName
+            , configDoc, platformDoc, languageDoc, sourceDoc
+            , metavar "COMMAND"
+            , Options.brackets (metavar "SUBCOMMAND" <+> ellipsis)
+            ]
+        , Options.hang 2 $ Options.fillSep
+            [ progName
+            , Options.braces "--list|-l"
+            , configDoc, platformDoc, languageDoc, sourceDoc
+            ]
+        , Options.hang 2 $ Options.fillSep
+            [ progName
+            , Options.braces "--update|-u"
+            , configDoc, platformDoc, languageDoc, sourceDoc
+            ]
+        , Options.hang 2 $ Options.fillSep
+            [ progName
+            , "--clear-cache"
+            , configDoc, platformDoc, languageDoc, sourceDoc
+            ]
+        , Options.hang 2 $ Options.fillSep
+            [ progName
+            , Options.braces "--config-typecheck|--config-print-type"
+            , configDoc
+            ]
+        , Options.hang 2 $ Options.fillSep
+            [ progName
+            , Options.braces "--version|-v"
+            ]
+        , Options.hang 2 $ Options.fillSep
+            [ progName
+            , Options.braces "--help|-h"
+            ]
+        ]
+      where
+        metavar :: Options.Doc -> Options.Doc
+        metavar = colour Options.dullgreen Options.underline
+
+        ellipsis :: Options.Doc
+        ellipsis = Options.brackets "..."
+
+        configDoc :: Options.Doc
+        configDoc = Options.brackets ("--config=" <> metavar "EXPR")
+
+        platformDoc :: Options.Doc
+        platformDoc = Options.brackets
+            ( Options.braces $ mconcat
+                [ "--platform=", metavar "PLATFORM"
+                , "|"
+                , "-p " <> metavar "PLATFORM"
+                ]
+            <+> ellipsis
+            )
+
+        languageDoc :: Options.Doc
+        languageDoc = Options.brackets
+            ( Options.braces $ mconcat
+                [ "--language=", metavar "LANGUAGE"
+                , "|"
+                , "-L " <> metavar "LANGUAGE"
+                ]
+            <+> ellipsis
+            )
+
+        sourceDoc :: Options.Doc
+        sourceDoc = Options.brackets
+            ( Options.braces $ mconcat
+                [ "--source=", metavar "SOURCE"
+                , "|"
+                , "-s " <> metavar "SOURCE"
+                ]
+            <+> ellipsis
+            )
 
     options :: Options.Parser Mode
     options =
@@ -533,7 +711,7 @@ completer config@Configuration{sources} _shell index words
                         guard (not (hadBefore "--config"))
                         pure "--config="
                     , do
-                        guard (not (hadBeforePrefix "--language=")
+                        guard (not (hadBeforePrefix "--language="))
                         guard (not (hadBeforeOneOf ["--language", "-L"]))
                         ["--language=", "-L"]
                     , do
