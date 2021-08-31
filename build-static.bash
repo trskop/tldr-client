@@ -99,6 +99,7 @@ function main() {
 
     local -r out="${root}/out"
     local -r dest="${out}/${target}"
+
     mkdir -p "${dest}/bin"
     stack \
         --local-bin-path="${dest}/bin" \
@@ -107,10 +108,14 @@ function main() {
         "${flags[@]}" \
         "${target}"
 
-    mkdir -p "${dest}/share/tldr" "${dest}/share/man/man1"
     cp -r "${root}/dhall" "${dest}/config"
+
+    mkdir -p "${dest}/share/tldr"
     cp -r "${root}/pages" "${dest}/share/tldr"
-    for manPage in 'tldr.1' 'command-wrapper-tldr.1'; do
+
+    mkdir -p "${dest}/share/man/man1"
+    local -r -a manPages=('tldr.1' 'command-wrapper-tldr.1')
+    for manPage in "${manPages[@]}"; do
         local src="${root}/man/${manPage}.md"
         local dst="${dest}/share/man/man1/${manPage}"
         pandoc --standalone --to=man --output="${dst}" "${src}"
@@ -135,6 +140,7 @@ function main() {
         find "${dest}/bin"    -type f -print0 | xargs -0 chmod 755
         find "${dest}/share"  -type f -print0 | xargs -0 chmod 644
         find "${dest}/config" -type f -print0 | xargs -0 chmod 644
+
         tar --directory="${out}" \
             --create --xz --file="${out}/${target}-${version}-${arch}.tar.xz" \
             "${target}/"
