@@ -24,14 +24,23 @@ import Data.Bool (Bool(False), not, otherwise)
 import Data.Eq ((==))
 import Data.Foldable (any, for_, null, traverse_)
 import Data.Function (($), (.))
-import Data.Functor ((<$), (<$>), (<&>))
+import Data.Functor (($>), (<$), (<$>), (<&>), fmap)
 import Data.Int (Int)
-import qualified Data.List as List (concat, elem, filter, sort, take)
+import qualified Data.List as List
+    ( concat
+    , elem
+    , filter
+    , repeat
+    , sort
+    , take
+    , zipWith
+    )
 import qualified Data.List.NonEmpty as NonEmpty (toList)
 import Data.Maybe (Maybe(Just, Nothing), fromMaybe, maybe)
 import Data.Monoid (mconcat)
 import Data.Semigroup ((<>))
 import Data.String (String, fromString)
+import qualified Data.String as String (words)
 import Data.Version (makeVersion)
 import Data.Word (Word)
 import System.Environment (getArgs, getProgName, lookupEnv)
@@ -68,7 +77,7 @@ import qualified Dhall (Decoder(Decoder, expected), input, inputFile)
 import qualified Options.Applicative as Options
     ( InfoMod
     , Parser
-    , ParserHelp(ParserHelp, helpUsage)
+    , ParserHelp(ParserHelp, helpBody, helpFooter, helpUsage)
     , ParserResult(CompletionInvoked, Failure, Success)
     , ReadM
     , auto
@@ -78,10 +87,9 @@ import qualified Options.Applicative as Options
     , execFailure
     , execParserPure
     , flag'
-    , footer
+    , footerDoc
     , fullDesc
     , header
-    , help
     , helper
     , info
     , internal
@@ -96,15 +104,19 @@ import qualified Options.Applicative as Options
 import Options.Applicative.Help ((<+>))
 import qualified Options.Applicative.Help as Options
     ( Doc
+    , bold
     , braces
     , brackets
-    , hang
+    , dullgreen
+    , encloseSep
     , fillSep
+    , hang
+    , magenta
     , nest
     , renderHelp
+    , squotes
     , string
     , underline
-    , dullgreen
     , vsep
     )
 import qualified Prettyprinter (pretty, line)
@@ -144,8 +156,14 @@ main :: IO ()
 main = do
     colourOutput <- parseEnvIO () (die . show) do
         fromMaybe ColourOutput.Auto <$> ColourOutput.noColorEnvVar
-    (config, action) <- parseOptions colourOutput decodeConfiguration
-        mkDefConfiguration completer
+    programName <- getProgName
+    (config, action) <- parseOptions ParseOptionsParams
+        { colourOutput
+        , programName
+        , decoder = decodeConfiguration
+        , mkDefault = mkDefConfiguration
+        , runCompletion = completer
+        }
     client config action
 
 data Mode
@@ -169,6 +187,26 @@ data Mode
     | Completion (Maybe Text) Shell (Maybe Word) [Text]
     -- ^ Do command-line completion.
 
+data ParseOptionsParams config = ParseOptionsParams
+    { colourOutput :: ColourOutput
+    , programName :: String
+    , decoder :: Dhall.Decoder config
+    -- ^ Dhall 'Dhall.Decoder' consists of parser and expected type. Dhall
+    -- library provides one special 'Dhall.Decoder':
+    --
+    -- @
+    -- 'Dhall.auto' :: 'Dhall.FromDhall' a => 'Dhall.Decoder' a
+    -- @
+    --
+    -- Which allows us to use type class mechanism for deriving and combining
+    -- parsers and is a good default in many cases.
+    , mkDefault :: IO config
+    -- ^ Construct default configuration if there is no configuration
+    -- available.
+    , runCompletion :: config -> Shell -> Maybe Word -> [Text] -> IO ()
+    -- ^ Command-line completer.
+    }
+
 -- | Parse command line options, handle everything that is not related to the
 -- main purpose of this binary or return `Configuration` otherwise.
 --
@@ -186,24 +224,17 @@ data Mode
 --   only deals with command-line interface.
 parseOptions
     :: forall config
-    .  ColourOutput
-    -> Dhall.Decoder config
-    -- ^ Dhall 'Dhall.Decoder' consists of parser and expected type. Dhall
-    -- library provides one special 'Dhall.Decoder':
-    --
-    -- @
-    -- 'Dhall.auto' :: 'Dhall.FromDhall' a => 'Dhall.Decoder' a
-    -- @
-    --
-    -- Which allows us to use type class mechanism for deriving and combining
-    -- parsers and is a good default in many cases.
-    -> IO config
-    -- ^ Construct default configuration if there is no configuration
-    -- available.
-    -> (config -> Shell -> Maybe Word -> [Text] -> IO ())
-    -- ^ Command-line completer.
+    .  ParseOptionsParams config
     -> IO (config, Action)
-parseOptions colourOutput decoder@Dhall.Decoder{expected} mkDef completer' = do
+parseOptions
+  ParseOptionsParams
+    { colourOutput
+    , programName
+    , decoder = decoder@Dhall.Decoder{expected}
+    , mkDefault
+    , runCompletion
+    } =
+  do
     configFile <- getXdgDirectory XdgConfig "tldr/config.dhall"
 
     execOptionsParser configFile >>= \case
@@ -211,8 +242,8 @@ parseOptions colourOutput decoder@Dhall.Decoder{expected} mkDef completer' = do
             (, action) <$> parseConfig configFile possiblyConfig
 
         Typecheck config -> do
-            -- TODO: When there is no config file (mkDef used) then we should
-            -- probably complain.
+            -- TODO: When there is no config file (mkDefault used) then we
+            -- should probably complain.
             _ <- parseConfig configFile config
             exitSuccess
 
@@ -253,7 +284,7 @@ parseOptions colourOutput decoder@Dhall.Decoder{expected} mkDef completer' = do
 
         Completion possiblyConfig shell index words -> do
             config <- parseConfig configFile possiblyConfig
-            completer' config shell index words
+            runCompletion config shell index words
             exitSuccess
   where
     parseConfig :: FilePath -> Maybe Text -> IO config
@@ -273,7 +304,7 @@ parseOptions colourOutput decoder@Dhall.Decoder{expected} mkDef completer' = do
                             then
                                 Dhall.inputFile decoder configFile
                             else
-                                mkDef
+                                mkDefault
 
     printType :: IO ()
     printType = case expected of
@@ -290,10 +321,21 @@ parseOptions colourOutput decoder@Dhall.Decoder{expected} mkDef completer' = do
     infoMod :: FilePath -> Options.InfoMod a
     infoMod configFile = Options.fullDesc
         <> Options.header "Client for tldr-pages."
-        <> Options.footer (footer configFile)
+        <> Options.footerDoc (Just $ footerDoc (\_ _ x -> x) configFile)
 
-    footer :: FilePath -> String
-    footer = ("User configuration file is read from: " <>)
+    footerDoc
+        ::  ( (Options.Doc -> Options.Doc)
+            -> (Options.Doc -> Options.Doc)
+            -> Options.Doc -> Options.Doc
+            )
+        -> FilePath
+        -> Options.Doc
+    footerDoc colour configFile =
+        "User configuration file is read from:"
+        <+> value (Options.string configFile)
+      where
+        value :: Options.Doc -> Options.Doc
+        value = colour Options.magenta Options.underline
 
     execOptionsParser :: FilePath -> IO Mode
     execOptionsParser configFile = do
@@ -305,19 +347,8 @@ parseOptions colourOutput decoder@Dhall.Decoder{expected} mkDef completer' = do
                 pure r
 
             Options.Failure failure -> do
-                progName <- getProgName
-
-                let (help@Options.ParserHelp{helpUsage}, exit, _) =
-                        Options.execFailure failure progName
-
-
-                    usage
-                        ::  ( (Options.Doc -> Options.Doc)
-                            -> (Options.Doc -> Options.Doc)
-                            -> Options.Doc -> Options.Doc
-                            )
-                        -> Options.Doc
-                    usage = betterUsage (Options.string progName)
+                let (help, exit, _) = Options.execFailure failure programName
+                    Options.ParserHelp{helpBody, helpFooter, helpUsage} = help
 
                     renderHelp
                         ::  ( (Options.Doc -> Options.Doc)
@@ -328,11 +359,18 @@ parseOptions colourOutput decoder@Dhall.Decoder{expected} mkDef completer' = do
                         -> String
                     renderHelp applyTerminalStyle cols =
                         Options.renderHelp cols help
+                            -- We want to set better help message iff the
+                            -- original help message piece is not empty. This
+                            -- way we are respecting options parser
+                            -- preferences.
                             { Options.helpUsage =
-                                -- We want to set better usage message iff the
-                                -- original usage is not empty. This way we are
-                                -- respecting options parser preferences.
-                                usage applyTerminalStyle <$ helpUsage
+                                helpUsage $> usage (Options.string programName)
+                                   applyTerminalStyle
+                            , Options.helpBody =
+                                helpBody $> optionsDoc applyTerminalStyle
+                            , Options.helpFooter =
+                                helpFooter $> footerDoc applyTerminalStyle
+                                    configFile
                             }
 
                     handle = if exit == ExitSuccess then stdout else stderr
@@ -354,51 +392,67 @@ parseOptions colourOutput decoder@Dhall.Decoder{expected} mkDef completer' = do
                 -- We don't use optparse-applicative command line completion.
                 exitFailure
 
-    betterUsage
+    usage
         :: Options.Doc
         ->  ( (Options.Doc -> Options.Doc)
             -> (Options.Doc -> Options.Doc)
             -> Options.Doc -> Options.Doc
             )
         -> Options.Doc
-    betterUsage progName colour = Options.nest 2 $ Options.vsep
+    usage programName' colour = Options.nest 2 $ Options.vsep
         [ "Usage:"
+        , ""
         , Options.hang 2 $ Options.fillSep
-            [ progName
+            [ programName'
             , configDoc, platformDoc, languageDoc, sourceDoc
             , metavar "COMMAND"
             , Options.brackets (metavar "SUBCOMMAND" <+> ellipsis)
             ]
         , Options.hang 2 $ Options.fillSep
-            [ progName
-            , Options.braces "--list|-l"
+            [ programName'
+            , Options.braces (alt [flag "--list", flag "-l"])
             , configDoc, platformDoc, languageDoc, sourceDoc
             ]
         , Options.hang 2 $ Options.fillSep
-            [ progName
-            , Options.braces "--update|-u"
+            [ programName'
+            , Options.braces (alt [flag "--update", flag "-u"])
             , configDoc, platformDoc, languageDoc, sourceDoc
             ]
         , Options.hang 2 $ Options.fillSep
-            [ progName
-            , "--clear-cache"
+            [ programName'
+            , flag "--clear-cache"
             , configDoc, platformDoc, languageDoc, sourceDoc
             ]
         , Options.hang 2 $ Options.fillSep
-            [ progName
-            , Options.braces "--config-typecheck|--config-print-type"
+            [ programName'
+            , Options.braces
+                (alt [flag "--config-typecheck", flag "--config-print-type"])
             , configDoc
             ]
         , Options.hang 2 $ Options.fillSep
-            [ progName
-            , Options.braces "--version|-v"
+            [ programName'
+            , Options.braces (alt [flag "--version", flag "-v"])
             ]
         , Options.hang 2 $ Options.fillSep
-            [ progName
-            , Options.braces "--help|-h"
+            [ programName'
+            , Options.braces (alt [flag "--help", flag "-h"])
             ]
         ]
       where
+        alt :: [Options.Doc] -> Options.Doc
+        alt = \case
+            [] -> ""
+            (d : ds) -> d <> mconcat (List.zipWith (<>) (List.repeat "|") ds)
+
+        flag :: Options.Doc -> Options.Doc
+        flag = colour Options.dullgreen Options.bold
+
+        opt :: Options.Doc -> Options.Doc -> Options.Doc
+        opt o v = flag o <> "=" <> metavar v
+
+        shortOpt :: Options.Doc -> Options.Doc -> Options.Doc
+        shortOpt o v = flag o <> " " <> metavar v
+
         metavar :: Options.Doc -> Options.Doc
         metavar = colour Options.dullgreen Options.underline
 
@@ -406,35 +460,26 @@ parseOptions colourOutput decoder@Dhall.Decoder{expected} mkDef completer' = do
         ellipsis = Options.brackets "..."
 
         configDoc :: Options.Doc
-        configDoc = Options.brackets ("--config=" <> metavar "EXPR")
+        configDoc = Options.brackets (opt "--config" "EXPR")
 
         platformDoc :: Options.Doc
         platformDoc = Options.brackets
-            ( Options.braces $ mconcat
-                [ "--platform=", metavar "PLATFORM"
-                , "|"
-                , "-p " <> metavar "PLATFORM"
-                ]
+            ( Options.braces
+                (alt [opt "--platform" "PLATFORM", shortOpt "-p" "PLATFORM"])
             <+> ellipsis
             )
 
         languageDoc :: Options.Doc
         languageDoc = Options.brackets
-            ( Options.braces $ mconcat
-                [ "--language=", metavar "LANGUAGE"
-                , "|"
-                , "-L " <> metavar "LANGUAGE"
-                ]
+            ( Options.braces
+                (alt [opt "--language" "LANGUAGE", shortOpt "-L" "LANGUAGE"])
             <+> ellipsis
             )
 
         sourceDoc :: Options.Doc
         sourceDoc = Options.brackets
-            ( Options.braces $ mconcat
-                [ "--source=", metavar "SOURCE"
-                , "|"
-                , "-s " <> metavar "SOURCE"
-                ]
+            ( Options.braces
+                (alt [opt "--source" "SOURCE", shortOpt "-s" "SOURCE"])
             <+> ellipsis
             )
 
@@ -478,31 +523,18 @@ parseOptions colourOutput decoder@Dhall.Decoder{expected} mkDef completer' = do
     configOption = Options.strOption
         ( Options.long "config"
         <> Options.metavar "EXPR"
-        <> Options.help "Set configuration to EXPR, where EXPR is a Dhall\
-            \ expression; if application fails to parse or typecheck the EXPR\
-            \ it terminates with exit code 1"
         )
 
     typecheckFlag :: Options.Parser (Maybe Text -> Mode)
-    typecheckFlag = Options.flag' Typecheck
-        ( Options.long "config-typecheck"
-        <> Options.help "Typecheck the configuration and exit; exit code 0 is\
-            \ used on success and exit code 1 on failure to typecheck"
-        )
+    typecheckFlag = Options.flag' Typecheck (Options.long "config-typecheck")
 
     printTypeFlag :: Options.Parser Mode
-    printTypeFlag = Options.flag' PrintType
-        ( Options.long "config-print-type"
-        <> Options.help "Print Dhall type of configuration accepted by the\
-            \ application"
-        )
+    printTypeFlag = Options.flag' PrintType (Options.long "config-print-type")
 
     versionFlag :: Options.Parser Mode
     versionFlag = Options.flag' Version
         ( Options.long "version"
         <> Options.short 'v' -- Mandated by Tldr Client Specification
-        <> Options.help "Print version information to standard output and\
-            \ terminate with exit code 0"
         )
 
     listFlag :: Options.Parser
@@ -515,9 +547,6 @@ parseOptions colourOutput decoder@Dhall.Decoder{expected} mkDef completer' = do
     listFlag = Options.flag' listAction
         ( Options.long "list"
         <> Options.short 'l'
-        <> Options.help "Lists all the pages for the current platform to the\
-            \ standard output; if '--platform=all' is specified then all pages\
-            \ in all platforms are listed"
         )
       where
         listAction lang platform sources cfg =
@@ -532,10 +561,6 @@ parseOptions colourOutput decoder@Dhall.Decoder{expected} mkDef completer' = do
         )
     clearCacheFlag = Options.flag' clearCacheAction
         ( Options.long "clear-cache"
-        <> Options.help "Clear offline cache; by default the whole cache is\
-            \ purged, but if '--source=SOURCE', '--platform=PLATFORM', or\
-            \ '--language=LANGUAGE' are specified then they limit what parts\
-            \ of the cache are removed."
         )
       where
         clearCacheAction lang platform sources cfg =
@@ -546,9 +571,6 @@ parseOptions colourOutput decoder@Dhall.Decoder{expected} mkDef completer' = do
         ( Options.long "platform"
         <> Options.short 'p'
         <> Options.metavar "PLATFORM"
-        <> Options.help "Search or list pages for specified PLATFORM. If not\
-            \ option is omitted then the platform the application is running\
-            \ on is used as a default"
         )
 
     languageOption :: Options.Parser Locale
@@ -557,26 +579,15 @@ parseOptions colourOutput decoder@Dhall.Decoder{expected} mkDef completer' = do
         ( Options.long "language"
         <> Options.short 'L'
         <> Options.metavar "LANGUAGE"
-        <> Options.help "Search/list pages written in LANGUAGE. Overrides\
-            \ default language detection mechanism"
         )
 
     commandArgument :: Options.Parser String
-    commandArgument = Options.strArgument
-        ( Options.metavar "COMMAND"
-        <> Options.help "Show pages for COMMAND. Multiple COMMANDs can be\
-            \ specified, in which case they are treated as one command with\
-            \ dashes in between. For example, \"tldr git commit\" is the same\
-            \ as \"tldr git-commit\""
-        )
+    commandArgument = Options.strArgument (Options.metavar "COMMAND")
 
     updateFlag :: Options.Parser ([Text] -> Maybe Text -> Mode)
     updateFlag = Options.flag' updateAction
         ( Options.long "update"
         <> Options.short 'u'
-        <> Options.help "Updates the offline cache of pages; if\
-            \ '--sources=SOURCE' is specified only cache for those page\
-            \ SOURCEs is updated"
         )
       where
         updateAction sources cfg = Execute cfg (Update sources)
@@ -586,17 +597,12 @@ parseOptions colourOutput decoder@Dhall.Decoder{expected} mkDef completer' = do
         ( Options.long "source"
         <> Options.short 's'
         <> Options.metavar "SOURCE"
-        <> Options.help "Show, list, or update cache only for specified\
-            \ SOURCEs; by default all sources are used; this option can be\
-            \ used multiple times to specify multiple SOURCEs"
         )
 
     completionInfoFlag
         :: Options.Parser Mode
     completionInfoFlag = Options.flag' CompletionInfo
         ( Options.long "completion-info"
-        <> Options.help "Describe how command-line completion works in the\
-            \ form of a  Dhall experssion"
         <> Options.internal
         )
 
@@ -604,7 +610,6 @@ parseOptions colourOutput decoder@Dhall.Decoder{expected} mkDef completer' = do
         :: Options.Parser (Shell -> Maybe Word -> [Text] -> Maybe Text -> Mode)
     completionFlag = Options.flag' completionMode
         ( Options.long "completion"
-        <> Options.help "Provide command-line completion"
         <> Options.internal
         )
       where
@@ -614,7 +619,6 @@ parseOptions colourOutput decoder@Dhall.Decoder{expected} mkDef completer' = do
     indexOption :: Options.Parser Word
     indexOption = Options.option Options.auto
         ( Options.long "index"
-        <> Options.help "Index of a WORD that we want completion for"
         <> Options.metavar "INDEX"
         <> Options.internal
         )
@@ -622,7 +626,6 @@ parseOptions colourOutput decoder@Dhall.Decoder{expected} mkDef completer' = do
     shellOption :: Options.Parser Shell
     shellOption = Options.option parseShell
         ( Options.long "shell"
-        <> Options.help "Shell for which we want completion for"
         <> Options.metavar "SHELL"
         <> Options.internal
         )
@@ -645,6 +648,173 @@ parseOptions colourOutput decoder@Dhall.Decoder{expected} mkDef completer' = do
         <> Options.metavar "WORD"
         <> Options.internal
         )
+
+    optionsDoc
+        ::  ( (Options.Doc -> Options.Doc)
+            -> (Options.Doc -> Options.Doc)
+            -> Options.Doc -> Options.Doc
+            )
+        -> Options.Doc
+    optionsDoc colour = Options.nest 2 $ Options.vsep
+        [ "Options:"
+        , ""
+        , Options.nest 4 $ Options.vsep
+            [ metavar "COMMAND"
+                <+> Options.brackets
+                    (metavar "SUBCOMMAND" <+> Options.brackets "...")
+            , Options.fillSep
+                [ paragraph "Show pages for a"
+                , metavar "COMMAND" <> "."
+                , "When"
+                , metavar "COMMAND"
+                , paragraph "is followed by"
+                , metavar "SUBCOMMAND" <> "s"
+                , paragraph "then they are treated as one command with dashes\
+                    \ in between. For example,"
+                , "\"" <> value "tldr git commit" <> "\""
+                , paragraph "is the same as"
+                , "\"" <> value "tldr git-commit" <> "\"."
+                ]
+            ]
+        , ""
+        , Options.nest 4 $ Options.vsep
+            [ list [opt "--platform" "PLATFORM", shortOpt "-p" "PLATFORM"]
+            , Options.fillSep
+                [ paragraph "Search or list pages for specified"
+                , metavar "PLATFORM" <> "."
+                , paragraph "If not option is omitted then the platform the\
+                    \ application is running on is used as a default."
+                ]
+            ]
+        , ""
+        , Options.nest 4 $ Options.vsep
+            [ list [opt "--language" "LANGUAGE", shortOpt "-L" "LANGUAGE"]
+            , Options.fillSep
+                [ paragraph "Search/list pages written in"
+                , metavar "LANGUAGE" <> "."
+                , paragraph "Overrides default language detection mechanism."
+                ]
+            ]
+        , ""
+        , Options.nest 4 $ Options.vsep
+            [ list [opt "--source" "SOURCE", shortOpt "-s" "SOURCE"]
+            , Options.fillSep
+                [ paragraph "Show, list, or update cache only for specified"
+                , metavar "SOURCE" <> "s;"
+                , paragraph "by default all sources are used; this option can\
+                    \ be used multiple times to specify multiple"
+                , metavar "SOURCE" <> "s."
+                ]
+            ]
+        , ""
+        , Options.nest 4 $ Options.vsep
+            [ list [flag "--list", flag "-l"]
+            , Options.fillSep
+                [ paragraph "Lists all the pages for the current platform to\
+                  \ the standard output; if"
+                , Options.squotes (flag "--platform" <> "=" <> value "all")
+                , paragraph "is specified then all pages in all platforms are\
+                    \ listed."
+                ]
+            ]
+        , ""
+        , Options.nest 4 $ Options.vsep
+            [ list [flag "--update", flag "-u"]
+            , Options.fillSep
+                [ paragraph "Updates the offline cache of pages; if"
+                , Options.squotes (opt "--sources" "SOURCE")
+                , paragraph "is specified only cache for those page"
+                , metavar "SOURCE" <> "s"
+                , paragraph "is updated."
+                ]
+            ]
+        , ""
+        , Options.nest 4 $ Options.vsep
+            [ flag "--clear-cache"
+            , Options.fillSep
+                [ paragraph "Updates the offline cache of pages; if"
+                , Options.squotes (opt "--sources" "SOURCE")
+                , paragraph "is specified only cache for those page"
+                , metavar "SOURCE" <> "s"
+                , paragraph "is updated."
+                ]
+            ]
+        , ""
+        , Options.nest 4 $ Options.vsep
+            [ opt "--config" "CONFIG"
+            , Options.fillSep
+                [ paragraph "Set configuration to"
+                , metavar "EXPR" <> ","
+                , "where"
+                , metavar "EXPR"
+                , paragraph "is a Dhall expression; if application fails to\
+                  \ parse or typecheck the"
+                , metavar "EXPR"
+                , paragraph "it terminates with exit code"
+                , value "1" <> "."
+                ]
+            ]
+        , ""
+        , Options.nest 4 $ Options.vsep
+            [ flag "--config-typecheck"
+            , Options.fillSep
+                [ paragraph "Typecheck the configuration and exit; exit code"
+                , value "0"
+                , paragraph "is used on success and exit code"
+                , value "1"
+                , paragraph "on failure to typecheck."
+                ]
+            ]
+        , ""
+        , Options.nest 4 $ Options.vsep
+            [ flag "--config-print-type"
+            , Options.fillSep
+                [ paragraph "Print Dhall type of configuration accepted by the\
+                    \ application."
+                ]
+            ]
+        , ""
+        , Options.nest 4 $ Options.vsep
+            [ list [flag "--version", flag "-v"]
+            , Options.fillSep
+                [ paragraph "Updates the offline cache of pages; if"
+                , Options.squotes (opt "--sources" "SOURCE")
+                , paragraph "is specified only cache for those page"
+                , metavar "SOURCE" <> "s"
+                , paragraph "is updated."
+                ]
+            ]
+        , ""
+        , Options.nest 4 $ Options.vsep
+            [ list [flag "--help", flag "-h"]
+            , Options.fillSep
+                [ paragraph "Print help information to standard output and\
+                    \ terminate with exit code"
+                , value "0" <> "."
+                ]
+            ]
+        ]
+      where
+        list :: [Options.Doc] -> Options.Doc
+        list = Options.encloseSep "" "" ", "
+
+        flag :: Options.Doc -> Options.Doc
+        flag = colour Options.dullgreen Options.bold
+
+        opt :: Options.Doc -> Options.Doc -> Options.Doc
+        opt o v = flag o <> "=" <> metavar v
+
+        shortOpt :: Options.Doc -> Options.Doc -> Options.Doc
+        shortOpt o v = flag o <> " " <> metavar v
+
+        paragraph :: String -> Options.Doc
+        paragraph = Options.fillSep . fmap fromString . String.words
+
+        metavar :: Options.Doc -> Options.Doc
+        metavar = colour Options.dullgreen Options.underline
+
+        value :: Options.Doc -> Options.Doc
+        value = colour Options.magenta Options.underline
 
 data Shell = Bash | Fish | Zsh
 

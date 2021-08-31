@@ -9,7 +9,7 @@
 # - Pandoc — https://pandoc.org/
 # - gzip — https://www.gnu.org/software/gzip/
 # - GNU tar — https://www.gnu.org/software/tar/
-# - fakeroot
+# - fakeroot — https://wiki.debian.org/FakeRoot
 
 set -eo pipefail
 
@@ -86,6 +86,17 @@ function main() {
         "${loadDockerImageBashScript}"
     fi
 
+    # Directory structure:
+    #
+    # ${root}/out/
+    # ├── ${target}/
+    # │   ├── bin/*
+    # │   ├── config/*
+    # │   └── share/
+    # │       ├── man/man1/*.1.gz
+    # │       └── tldr/pages/common/*.md
+    # └── ${target}-${version}-${arch}.tar.xz
+
     local -r out="${root}/out"
     local -r dest="${out}/${target}"
     mkdir -p "${dest}/bin"
@@ -99,26 +110,34 @@ function main() {
     mkdir -p "${dest}/share/tldr" "${dest}/share/man/man1"
     cp -r "${root}/dhall" "${dest}/config"
     cp -r "${root}/pages" "${dest}/share/tldr"
-    pandoc --standalone --to=man \
-        --output="${dest}/share/man/man1/tldr.1" \
-        "${root}/man/tldr.1.md"
-    gzip --force --best "${dest}/share/man/man1/tldr.1"
+    for manPage in 'tldr.1' 'command-wrapper-tldr.1'; do
+        local src="${root}/man/${manPage}.md"
+        local dst="${dest}/share/man/man1/${manPage}"
+        pandoc --standalone --to=man --output="${dst}" "${src}"
+        gzip --force --best "${dst}"
+    done
 
     local version=
     version="$(
         jq --raw-output . "${root}/version.json"
     )"
 
-    local -r arch='x86_64-linux'
+    local arch=
+    arch="$(
+        stack --docker --docker-image="${dockerImage}" \
+            ghc -- --print-build-platform \
+        | sed 's/-unknown-/-/'
+    )"
+
     fakeroot -- bash <<EOF
-    chown -R root:root "${dest}"
-    find "${dest}"        -type d -print0 | xargs -0 chmod 755
-    find "${dest}/bin"    -type f -print0 | xargs -0 chmod 755
-    find "${dest}/share"  -type f -print0 | xargs -0 chmod 644
-    find "${dest}/config" -type f -print0 | xargs -0 chmod 644
-    tar --directory="${out}" \
-        --create --xz --file="${out}/${target}-${version}-${arch}.tar.xz" \
-        "${target}/"
+        chown -R root:root "${dest}"
+        find "${dest}"        -type d -print0 | xargs -0 chmod 755
+        find "${dest}/bin"    -type f -print0 | xargs -0 chmod 755
+        find "${dest}/share"  -type f -print0 | xargs -0 chmod 644
+        find "${dest}/config" -type f -print0 | xargs -0 chmod 644
+        tar --directory="${out}" \
+            --create --xz --file="${out}/${target}-${version}-${arch}.tar.xz" \
+            "${target}/"
 EOF
 }
 

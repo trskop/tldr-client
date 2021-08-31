@@ -1,8 +1,8 @@
 # TLDR Client
 
-Client for [tldr-pages](https://tldr.sh/) that supports [Tldr-pages Client
-Specification v1.5
-](https://github.com/tldr-pages/tldr/blob/v1.5/CLIENT-SPECIFICATION.md)
+Highly configurable client for [tldr-pages](https://tldr.sh/) that supports
+[Tldr-pages Client Specification v1.5
+](https://github.com/tldr-pages/tldr/blob/v1.5/CLIENT-SPECIFICATION.md).
 
 
 ## Usage
@@ -60,3 +60,6 @@ More complicated example that can be turned into a library can be found in
   has a root directory where `pages${locale}` directories are stored.
 
 - [x] Command line completion.
+
+- [ ] [Command Wrapper](https://github.com/trskop/command-wrapper#readme)
+  support.

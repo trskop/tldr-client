@@ -1,46 +1,48 @@
-% TLDR-CLIENT(1) TLDR Pages Client | TLDR Pages Client
+% COMMAND-WRAPPER-TLDR(1) TLDR Pages Client | TLDR Pages Client
 % Peter Trsko
 % 31 August 2021
 
 # NAME
 
-`tldr` - Client for [tldr pages](https://tldr.sh/), a collection of simplified
-and community-driven man pages.
+`command-wrapper-tldr` - Client for [tldr pages](https://tldr.sh/), a
+collection of simplified and community-driven man pages.
 
 
 # USAGE
 
-tldr
+TOOLSET\_COMMAND \[GLOBAL\_OPTIONS] tldr
 \[\--config=*EXPR*]
 \[{\--language=*LANGUAGE*|-L *LANGUAGE*} \[...]]
 \[{\--platform=*PLATFORM*|-p *PLATFORM*} \[...]]
 \[{\--source=*SOURCE*|-s *SOURCE*} \[...]]
 *COMMAND* \[*SUBCOMMAND* \[...]\]
 
-tldr {\--list|-l}
+TOOLSET\_COMMAND \[GLOBAL\_OPTIONS] tldr {\--list|-l}
 \[\--config=*EXPR*]
 \[{\--language=*LANGUAGE*|-L *LANGUAGE*} \[...]]
 \[{\--platform=*PLATFORM*|-p *PLATFORM*} \[...]]
 \[{\--source=*SOURCE*|-s *SOURCE*} \[...]]
 
-tldr {\--update|-u}
+TOOLSET\_COMMAND \[GLOBAL\_OPTIONS] tldr {\--update|-u}
 \[\--config=*EXPR*]
 \[{\--language=*LANGUAGE*|-L *LANGUAGE*} \[...]]
 \[{\--platform=*PLATFORM*|-p *PLATFORM*} \[...]]
 \[{\--source=*SOURCE*|-s *SOURCE*} \[...]]
 
-tldr \--clear-cache
+TOOLSET\_COMMAND \[GLOBAL\_OPTIONS] tldr \--clear-cache
 \[\--config=*EXPR*]
 \[{\--language=*LANGUAGE*|-L *LANGUAGE*} \[...]]
 \[{\--platform=*PLATFORM*|-p *PLATFORM*} \[...]]
 \[{\--source=*SOURCE*|-s *SOURCE*} \[...]]
 
-tldr {\--config-print-type|\--config-typecheck}
+TOOLSET\_COMMAND \[GLOBAL\_OPTIONS] tldr {\--config-print-type|\--config-typecheck}
 \[\--config=*EXPR*]
 
-tldr {\--version|-v}
+TOOLSET\_COMMAND \[GLOBAL\_OPTIONS] tldr {\--version|-v}
 
-tldr {\--help|-h}
+TOOLSET\_COMMAND \[GLOBAL\_OPTIONS] tldr {\--help|-h}
+
+TOOLSET\_COMMAND \[GLOBAL\_OPTIONS] help \[\--man] tldr
 
 
 # DESCRIPTION
@@ -62,42 +64,42 @@ See *EXAMPLES* section, below, to see few basic usage examples.
 *   Show tldr page for a specific command:
 
     ```bash
-    tldr COMMAND
+    TOOLSET_COMMAND tldr COMMAND
     ```
 
     More specific example:
 
     ```bash
-    tldr tar
+    TOOLSET_COMMAND tldr tar
     ```
 
 *   Show tldr page for a specific *COMMAND* and its *SUBCOMMAND* (both variants
     have the same effect):
 
     ```bash
-    tldr COMMAND SUBCOMMAND
-    tldr COMMAND-SUBCOMMAND
+    TOOLSET_COMMAND tldr COMMAND SUBCOMMAND
+    TOOLSET_COMMAND tldr COMMAND-SUBCOMMAND
     ```
 
     More specific example:
 
     ```
-    tldr git commit
-    tldr git-commit
+    TOOLSET_COMMAND tldr git commit
+    TOOLSET_COMMAND tldr git-commit
     ```
 
 *   Update offline cache:
 
     ```bash
-    tldr --update
-    tldr -u
+    TOOLSET_COMMAND tldr --update
+    TOOLSET_COMMAND tldr -u
     ```
 
 *   List available tldr pages:
 
     ```bash
-    tldr --list
-    tldr -l
+    TOOLSET_COMMAND tldr --list
+    TOOLSET_COMMAND tldr -l
     ```
 
 
@@ -141,10 +143,9 @@ See *EXAMPLES* section, below, to see few basic usage examples.
     expression; if application fails to parse or typecheck the *EXPR* it
     terminates with exit code 1.
 
-    This option overrides user's configuration file (see *FILES* section) and
-    `TLDR_CONFIG=`*EXPR* environment variable (see *ENVIRONMENT VARIABLES*
-    section). In other words, the `--config=`*EXPR* has the highest priority of
-    all the ways how configuration can be passed to the application.
+    This option overrides application configuration file (see *FILES* section).
+    In other words, the `--config=`*EXPR* has the highest priority of all the
+    ways how configuration can be passed to the application.
 
 \--language=*LANGUAGE*, -l *LANGUAGE*
 :   Search/list pages written in *LANGUAGE*. Overrides default language
@@ -230,8 +231,31 @@ See *EXAMPLES* section, below, to see few basic usage examples.
 \--help, -h
 :   Print help information to standard output and terminate with exit code 0.
 
+    Same as:
+
+    ```bash
+    TOOLSET_COMMAND help tldr
+    ```
+
+# EXIT STATUS
+
+For documentation of generic *EXIT STATUS* codes see `command-wrapper(1)`
+manual page section *EXIT STATUS*.  Any *EXIT STATUS* codes specific to this
+subcommand will be listed below.
+
+`3`
+:   TODO
+
 
 # FILES
+
+`${XDG_CONFIG_HOME:-$HOME/.config}/${toolset}/command-wrapper-tldr.dhall`
+:   Dhall *EXPR*ession to be used as a configuration. For more information
+    about the *EXPR*ession see *CONFIGURATION* section.
+
+    This environment variable has lower priority than `--config=`*EXPR* command
+    line option (see *OPTIONS* section). See also *CONFIGURATION* for full
+    configuration resolution algorithm.
 
 `${XDG_CONFIG_HOME:-$HOME/.config}/tldr/config.dhall`
 :   User configuration file containing [Dhall](https://dhall-lang.org/)
@@ -243,14 +267,30 @@ See *EXAMPLES* section, below, to see few basic usage examples.
 
 # ENVIRONMENT VARIABLES
 
-`TLDR_CONFIG=`*EXPR*
-:   Dhall *EXPR*ession to be used as a configuration. For more information
-    about the *EXPR*ession see *CONFIGURATION* section.
+See also `command-wrapper(1)` *ENVIRONMENT VARIABLES* section.  Everything
+mentioned there applies to this subcommand as well.
 
-    This environment variable has higher priority than user's configuration
-    file (see *FILES* section) and lower than `--config=`*EXPR* command line
-    option (see *OPTIONS* section). See also *CONFIGURATION* for full
-    configuration resolution algorithm.
+`XDG_CONFIG_HOME`
+:   Overrides where this subcommand expects its configuration file.  It follows
+    this simple logic:
+
+    * If `XDG_CONFIG_HOME` environment variable is set then the configuration
+      file has path:
+
+        ```
+        ${XDG_CONFIG_HOME}/${toolset}/command-wrapper-tldr.dhall
+        ```
+
+    * If `XDG_CONFIG_HOME` environment variable is not set then default value
+      is used instead:
+
+        ```
+        ${HOME}/.config/${toolset}/command-wrapper-tldr.dhall
+        ```
+
+    See [XDG Base Directory Specification
+    ](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html)
+    for more information on rationale behind this.
 
 `LANG`, `LANGUAGE`
 :   These environment variables are used to figure out the default language and
@@ -275,20 +315,20 @@ See *EXAMPLES* section, below, to see few basic usage examples.
     do):
 
     ```bash
-    NO_COLOR= tldr --help
+    NO_COLOR= TOOLSET_COMMAND tldr --help
     ```
 
     On shells that do not support the above syntax, like `fish`, you may need
     to use `env`:
 
     ```bash
-    env NO_COLOR= tldr --help
+    env NO_COLOR= TOOLSET_COMMAND tldr --help
     ```
 
     Following can be used to temporarily disable `NO_COLOR`:
 
     ```bash
-    env -u 'NO_COLOR' tldr --help
+    env -u 'NO_COLOR' TOOLSET_COMMAND tldr --help
     ```
 
 
@@ -302,14 +342,9 @@ following following resolution algorithm:
 
    Try the next step if the command line option is not specified.
 
-2. If `TLDR_CONFIG=`*EXPR* is defined then Dhall *EXPR*ession is used as
-   configuration. See *ENVIRONMENT VARIABLES* section for more details.
-
-   Try the next step if the environment variable is not defined.
-
-3. If `${XDG_CONFIG_HOME:-$HOME/.config}/tldr/config.dhall` (user's
-   configuration file) exists then it is used as configuration. See *FILES*
-   section for more details.
+2. If `${XDG_CONFIG_HOME:-$HOME/.config}/${toolset}/command-wrapper-tldr.dhall`
+   (user's configuration file) exists then it is used as configuration. See
+   *FILES* section for more details.
 
    Try the next step if the user's configuration file doesn't exist.
 
@@ -345,6 +380,8 @@ in  Config::{
 
 
 # SEE ALSO
+
+command-wrapper(1)
 
 * [tldr pages](https://tldr.sh/)
 * [Dhall configuration language](https://dhall-lang.org/)
