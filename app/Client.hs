@@ -169,10 +169,7 @@ client config@Configuration{sources, verbosity} action = do
                             -- configured) and we should check it to git better
                             -- error message.
                             nonEmpty sourcesOverride
-                        , locales =
-                            -- TODO: getLocales should actually give us
-                            -- NonEmpty.
-                            nonEmpty (localeToText <$> locales)
+                        , locales = Just (localeToText <$> locales)
                         , platforms = getPlatforms platformOverride
                         }
                 when (verbosity >= Verbosity.Annoying) do
@@ -201,10 +198,7 @@ client config@Configuration{sources, verbosity} action = do
                             -- configured) and we should check it to git better
                             -- error message.
                             nonEmpty sourcesOverride
-                        , locales =
-                            -- TODO: getLocales should actually give us
-                            -- NonEmpty.
-                            nonEmpty (localeToText <$> locales)
+                        , locales = Just (localeToText <$> locales)
                         , platforms = getPlatforms platformOverride
                         }
                 when (verbosity >= Verbosity.Annoying) do
@@ -302,10 +296,7 @@ client config@Configuration{sources, verbosity} action = do
                         -- configured) and we should check it to git better
                         -- error message.
                         nonEmpty sourcesOverride
-                    , locales =
-                        -- TODO: getLocales should actually give us
-                        -- NonEmpty.
-                        nonEmpty (localeToText <$> locales)
+                    , locales = Just (localeToText <$> locales)
                     , platforms = getPlatforms platformOverride
                     }
             when (verbosity >= Verbosity.Annoying) do

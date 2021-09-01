@@ -14,10 +14,11 @@ module TldrClient.Locale
     -- * Index
       Locale(..)
     , LanguageCode
-    , lookupLang
     , decodeLocale
     , parseLocale
     , localeToText
+    , defaultLocale
+    , languagePreference
     )
   where
 
@@ -25,22 +26,23 @@ import Prelude (minBound, maxBound)
 
 import Control.Applicative (pure)
 import Control.Monad.Fail (fail)
-import Control.Monad (when)
-import Data.Bool (otherwise)
+import Control.Monad ((>>=))
+import Data.Bool ((&&), otherwise)
 import Data.Char (Char)
 import Data.Either (Either(Left, Right), either)
-import Data.Eq (Eq, (/=))
-import Data.Function (($), (.))
+import Data.Eq (Eq, (/=), (==))
+import Data.Foldable (elem)
+import Data.Function ((.))
 import Data.Functor ((<$), (<$>))
-import Data.Maybe (Maybe(Just, Nothing), maybe)
-import Data.Ord ((>=))
+import Data.List.NonEmpty (NonEmpty((:|)), nonEmpty)
+import Data.Maybe (Maybe(Just, Nothing), fromMaybe, maybe)
 import Data.Semigroup ((<>))
-import Data.String (String, fromString)
+import Data.String (String)
+import Data.Traversable (for)
 import GHC.Generics (Generic)
-import System.Environment (lookupEnv)
-import System.IO (IO, putStrLn)
 import Text.Show (Show, show)
 
+import Control.Monad.Except (throwError)
 import Data.Aeson (FromJSON(..), ToJSON(..))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson (Parser)
@@ -50,15 +52,15 @@ import Data.LanguageCodes (ISO639_1)
 import qualified Data.LanguageCodes as LanguageCode
 import Data.Text (Text)
 import qualified Data.Text as Text
-    ( cons
+    ( break
+    , cons
+    , drop
     , null
     , singleton
     , takeWhile
     , toUpper
     , uncons
     )
-import Data.Verbosity (Verbosity)
-import qualified Data.Verbosity as Verbosity (Verbosity(Normal))
 import qualified Dhall
     ( Decoder(Decoder, expected, extract)
     , field
@@ -69,6 +71,11 @@ import qualified Dhall
 import qualified Dhall.Core as Dhall (Expr(Field, Union), fieldSelectionLabel)
 import qualified Dhall.Map as Dhall (Map)
 import qualified Dhall.Map (fromList, lookup)
+import System.Environment.Parser
+    ( ParseEnv
+    , ParseEnvError(ParseEnvError)
+    , optionalVar
+    )
 
 -- | Locale format:
 --
@@ -182,18 +189,106 @@ parseLocale t = do
     failUnknownCountry :: Text -> Either String a
     failUnknownCountry c = Left ("Unknow country code in Locale: " <> show c)
 
-lookupLang :: Verbosity -> Locale -> IO Locale
-lookupLang verbosity def = do
-    lang <- lookupEnv "LANG"
-    maybe (pure def) (parseLang . fromString) lang
+-- | Figure out user language preference from system environment.
+--
+-- The algorithm itself is described in [Tldr-pages client specification v1.5:
+-- Language](https://github.com/tldr-pages/tldr/blob/v1.5/CLIENT-SPECIFICATION.md#language)
+--
+-- Additional resources regarding Locale Environment Variables:
+--
+-- * [wiki.debian.org/Locale](https://wiki.debian.org/Locale)
+-- * [GNU gettext utilities: 2.3 Setting the Locale through Environment
+--   Variables](https://www.gnu.org/savannah-checkouts/gnu/gettext/manual/html_node/Setting-the-POSIX-Locale.html)
+languagePreference :: ParseEnv context (NonEmpty Locale)
+languagePreference = do
+    possiblyLang <- lookupLang
+    r <- for possiblyLang \lang -> do
+        priorityList <- lookupLanguage
+        -- This is a small deviation from tldr-pages client specification
+        -- v1.5 where it mandates to always append lang to the list,
+        -- however, that doesn't make much sense if it is already in the
+        -- priorityList.
+        pure
+            if (lang `elem` priorityList)
+                then priorityList
+                else priorityList <> [lang]
+
+    let langs :: NonEmpty Locale
+        langs = fromMaybe (pure @NonEmpty defaultLocale) (r >>= nonEmpty)
+
+    pure do
+        -- This is a deviation from tldr-pages client specification v1.5. Here
+        -- we assume that people from different regions will be able to read
+        -- more general language. Reason for doing this is the fact that the
+        -- specification defines that the language code used for pages
+        -- translation should be the shortest one. So if there are translated
+        -- pages for example for czech language then `cs` code should be used
+        -- for pages translations instead of `cs_CZ`, however, `LANG`
+        -- environment variable will be using `cs_CZ`.
+        langs >>= \case
+            l@Locale{country = Just _}
+              -- Checking presence not only simplifies the list, but also helps
+              -- preserve user preferences more closely.
+              | l{country = Nothing} `elem` langs ->
+                    pure @NonEmpty l
+              | otherwise ->
+                    l :| [l{country = Nothing}]
+            l ->
+                pure @NonEmpty l
+
+-- | Lookup `LANGUAGE` environment variable. If it is not set or set to empty
+-- value then this function will return @[]@ (empty list).
+lookupLanguage :: forall context. ParseEnv context [Locale]
+lookupLanguage = optionalVar "LANGUAGE" >>= maybe (pure []) splitLanguage
   where
-    parseLang :: Text -> IO Locale
-    parseLang t = case parseLocale (Text.takeWhile (/= '.') t) of
-        Right locale ->
-            pure locale
-        Left err ->
-            def <$ when (verbosity >= Verbosity.Normal) do
-                putStrLn
-                    $ "Warning: LANG: Failed to parse environment variable,\
-                    \ defaulting to " <> show (localeToText def) <>
-                    "; parsing error: " <> err
+    splitLanguage :: Text -> ParseEnv context [Locale]
+    splitLanguage t
+      | Text.null t = pure []
+      | otherwise = do
+            let (x, rest) = Text.break (== ':') t
+            l <- parseLocale' x
+            ls <- splitLanguage (Text.drop 1 rest)
+            pure (maybe ls (: ls) l)
+
+    parseLocale' :: Text -> ParseEnv context (Maybe Locale)
+    parseLocale' s
+      | Text.null s =
+            -- Setting LANGUAGE to empty string is the same thing as keeping it
+            -- unset.
+            pure Nothing
+
+      | s == "C" =
+            -- @\"C\"@ is a special value that means no localisation. In our
+            -- case this is the same thing as `defaultLocale`.
+            pure (Just defaultLocale)
+
+      | otherwise =
+            case parseLocale (Text.takeWhile (\c -> c /= '.' && c /= '@') s) of
+                Right r -> pure (Just r)
+                Left err -> throwError (ParseEnvError "LANGUAGE" err)
+
+lookupLang :: ParseEnv context (Maybe Locale)
+lookupLang = do
+    rawLang <- do
+        l <- optionalVar "LANG"
+        -- Setting LANG to empty string is the same thing as keeping it unset.
+        pure if
+          | Just t <- l, Text.null t -> Nothing
+          | otherwise -> l
+
+    for rawLang \(t :: Text) -> if
+      | t == "C" ->
+            -- @\"C\"@ is a special value that means no localisation. In our
+            -- case this is the same thing as `defaultLocale`.
+            pure defaultLocale
+
+      | otherwise ->
+          case parseLocale (Text.takeWhile (\c -> c /= '.' && c /= '@') t) of
+                Left err -> throwError (ParseEnvError "LANG" err)
+                Right lang -> pure lang
+
+defaultLocale :: Locale
+defaultLocale = Locale
+    { language = LanguageCode.EN
+    , country = Nothing
+    }
