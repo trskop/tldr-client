@@ -1,6 +1,6 @@
 -- |
--- Module:      Index
--- Description: TODO: Module synopsis
+-- Module:      TldrClient.Index
+-- Description: Local cache in the form of SQLite database
 -- Copyright:   (c) 2021 Peter Trško
 -- License:     BSD3
 --
@@ -8,8 +8,8 @@
 -- Stability:   experimental
 -- Portability: GHC specific language extensions; POSIX.
 --
--- TODO: Module description.
-module Index
+-- Local cache in the form of SQLite database.
+module TldrClient.Index
     ( Entry(..)
 
     -- * Create
@@ -138,7 +138,7 @@ new cacheDirectory = liftIO do
 newUnlessExists :: MonadIO m => FilePath -> m FilePath
 newUnlessExists cacheDirectory = liftIO do
     possiblyFile <- getIndexFile cacheDirectory
-    maybe (Index.new cacheDirectory) pure possiblyFile
+    maybe (new cacheDirectory) pure possiblyFile
 
 data LookupQuery = LookupQuery
     { command :: Text

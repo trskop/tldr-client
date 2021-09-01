@@ -89,7 +89,7 @@ import Configuration
     , getCacheDirectory
     , getLocales
     )
-import qualified Index
+import qualified TldrClient.Index as Index
     ( Entry(..)
     , ListQuery(..)
     , LookupQuery(..)
@@ -100,8 +100,11 @@ import qualified Index
     , newUnlessExists
     , prune
     )
-import Locale (Locale(..), localeToText)
-import qualified TldrPagesIndex (indexAndLoad, load)
+import TldrClient.Locale (Locale(..), localeToText)
+import qualified TldrClient.TldrPagesIndex as TldrPagesIndex
+    ( indexAndLoad
+    , load
+    )
 
 
 data Action

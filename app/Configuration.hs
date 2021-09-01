@@ -62,7 +62,7 @@ import qualified Dhall
 import System.Console.Terminfo (setupTermFromEnv)
 import System.Directory (XdgDirectory(XdgCache), getXdgDirectory)
 
-import Locale (Locale(Locale, country, language), decodeLocale, lookupLang)
+import TldrClient.Locale (Locale(Locale, country, language), decodeLocale, lookupLang)
 
 
 data Configuration = Configuration

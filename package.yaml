@@ -62,6 +62,45 @@ dependencies:
   - base >=4.13 && <5
   # ^ Version 4.13.0.0 is bundled with 8.8.1
 
+# All the dependencies that we use with version bounds. This keeps them all
+# consistent by the virtue of sharing.
+_dependencies:
+  - &aeson aeson >=1.5.2.0 && <2
+  - &bytestring bytestring >=0.10 && <1
+  - &case-insensitive case-insensitive >=1.2 && <2
+  - &country-codes country-codes >=0.1.4 && <1
+  - &dhall dhall >=1.39.0 && <2
+  - &directory directory >=1.3.5 && <2
+  - &either either >=5.0.1.1 && <6
+  - &filepath filepath >=1.4.2.1 && <2
+  # ^ Version 1.4.2.1 is bundled with GHC 8.6.1 and later.
+  - &iso639 iso639 >=0.1.0.3 && <1
+  # ^ Language codes
+  - &lens lens >=4.19 && <6
+  # ^ Version 5.* is supported as well.
+  - &optparse-applicative optparse-applicative >=0.15.1.0 && <1
+  - &prettyprinter prettyprinter >=1.7.0 && <2
+  - &prettyprinter-ansi-terminal prettyprinter-ansi-terminal
+  - &safe safe >=0.3.19 && <1
+  - &sqlite-simple sqlite-simple >=0.4.16 && <1
+  - &temporary temporary >=1.3 && <2
+  # ^ Version 1.3 is the first one that uses random hex string in temp
+  # names instead of PIDs.
+  - &terminal-size terminal-size >=0.3.2.1 && <1
+  - &terminfo terminfo >=0.4.1.4 && <1
+  - &text text >=1.2.4.0 && <2
+  - &tldr tldr >=0.9.1 && <1
+  # ^ Fucntion `renderPage` takes `ColorSetting` argument since version
+  # 0.9.1.
+  - &tldr tldr >=0.9.1 && <1
+  - &verbosity verbosity >=0.3 && <1
+  - &wreq wreq >=0.5.3.2 && <1
+  # ^ Version 0.8.3.2 is first to handle http-client >=0.6.0
+  - &zip-archive zip-archive >=0.4 && <1
+
+  # Not on Hackage:
+  - &mainplate mainplate
+
 ghc-options:
   - "-Wall"
   - "-Wcompat"
@@ -73,50 +112,60 @@ ghc-options:
   - "-Wunused-packages" # GHC >8.10
   - "-Wunused-record-wildcards" # GHC >8.10
 
+library:
+  source-dirs: src
+
+  dependencies:
+      - *aeson
+      - *bytestring
+      - *country-codes
+      - *dhall
+      - *directory
+      - *directory
+      - *filepath
+      - *iso639
+      - *prettyprinter
+      - *sqlite-simple
+      - *text
+      - *verbosity
+
+  when:
+    - condition: flag(static)
+      ghc-options:
+        - -static
+        - -O2
+        - -fPIC
+
 executables:
   tldr:
     source-dirs: app
     main: Main.hs
     dependencies:
-      - aeson >=1.5.2.0 && <2
-      - bytestring
-      - case-insensitive >=1.2 && <2
-      - country-codes >=0.1.4 && <1
-      - dhall >=1.39.0 && <2
-      - directory
-      - either >=5.0.1.1 && <6
-      - filepath
-      - iso639 >=0.1.0.3 && <1
-      # ^ Language codes
-      - lens >=4.19 && <6
-      # ^ Version 5.* is supported as well.
-      - optparse-applicative >=0.15.1.0 && <1
-      - prettyprinter >=1.7.0 && <2
-      - prettyprinter-ansi-terminal
-      - safe >=0.3.19 && <1
-      - sqlite-simple >=0.4.16 && <1
-      - temporary >=1.3 && <2
-      # ^ Version 1.3 is the first one that uses random hex string in temp
-      # names instead of PIDs.
-      - terminal-size >=0.3.2.1 && <1
-      - terminfo >=0.4.1.4 && <1
-      - text >=1.2.4.0 && <2
-      - tldr >=0.9.1 && <1
-      # ^ Fucntion `renderPage` takes `ColorSetting` argument since version
-      # 0.9.1.
-      - tldr >=0.9.1 && <1
-      - verbosity >=0.3 && <1
-      - wreq >=0.5.3.2 && <1
-      # ^ Version 0.8.3.2 is first to handle http-client >=0.6.0
-      - zip-archive >=0.4 && <1
+      - *this
 
-      # Not on Hackage:
-      - mainplate
-
-      # Most min version bounds were taken from LTS-16.28 that was used during
-      # initial development.
-      #- async >=2.2.2 && <3
-      #- bytestring >=0.10.10.1 && <1
+      - *bytestring
+      - *case-insensitive
+      - *dhall
+      - *directory
+      - *either
+      - *filepath
+      - *iso639
+      - *lens
+      - *mainplate
+      - *optparse-applicative
+      - *prettyprinter
+      - *prettyprinter-ansi-terminal
+      - *safe
+      - *sqlite-simple
+      - *temporary
+      - *terminal-size
+      - *terminfo
+      - *text
+      - *tldr
+      - *tldr
+      - *verbosity
+      - *wreq
+      - *zip-archive
 
     ghc-options: ["-threaded"]
 

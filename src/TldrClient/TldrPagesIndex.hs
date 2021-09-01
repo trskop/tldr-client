@@ -1,5 +1,5 @@
 -- |
--- Module:      TldrPagesIndex
+-- Module:      TldrClient.TldrPagesIndex
 -- Description: Structure and indexing of tldr-pages
 -- Copyright:   (c) 2021 Peter Trško
 -- License:     BSD3
@@ -13,7 +13,7 @@
 -- * @index.json@ file present in official distribution of tldr-pages.
 --
 -- * Indexing of tldr-pages directory structure without @index.json@.
-module TldrPagesIndex
+module TldrClient.TldrPagesIndex
     (
     -- * Index
       Index(..)
@@ -54,8 +54,8 @@ import qualified Data.Text as Text (null, unpack)
 import System.Directory (listDirectory)
 import System.FilePath ((<.>), (</>), dropExtension, takeExtension)
 
-import Locale (Locale(..), localeToText)
-import qualified Index (Entry(..))
+import TldrClient.Locale (Locale(..), localeToText)
+import qualified TldrClient.Index as Index (Entry(..))
 
 
 -- | Represents @index.json@ of @tldr-pages@.

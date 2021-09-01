@@ -6,6 +6,8 @@ For latest version of this document see [`ChangeLog.md on GitHub`
 
 * Command-line completion
 
+* Improved help message
+
 ### 0.1.0.0
 
 Initial release; not uploaded to Hackage

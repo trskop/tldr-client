@@ -145,9 +145,14 @@ import Client
     , client
     , parsePlatform
     )
-import Version (VersionInfo(..), prettyVersionInfo)
-import Locale (Locale, parseLocale)
-import qualified Index (getCommands, getIndexFile, getLocales, getPlatforms)
+import qualified TldrClient.Index as Index
+    ( getCommands
+    , getIndexFile
+    , getLocales
+    , getPlatforms
+    )
+import TldrClient.Locale (Locale, parseLocale)
+import TldrClient.Version (VersionInfo(..), prettyVersionInfo)
 
 import Paths_tldr_client (version)
 

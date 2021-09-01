@@ -1,4 +1,15 @@
-module Version
+-- |
+-- Module:      TldrClient.Version
+-- Description: Version information printed by `--version` flag
+-- Copyright:   (c) 2021 Peter Trško
+-- License:     BSD3
+--
+-- Maintainer:  peter.trsko@gmail.com
+-- Stability:   experimental
+-- Portability: GHC specific language extensions.
+--
+-- Version information printed by @--version@ flag.
+module TldrClient.Version
     ( VersionInfo(..)
     , prettyVersionInfo
     )

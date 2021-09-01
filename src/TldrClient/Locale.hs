@@ -1,6 +1,6 @@
 -- |
--- Module:      Locale
--- Description: TODO: Module synopsis
+-- Module:      TldrClient.Locale
+-- Description: Represents locale (language & region)
 -- Copyright:   (c) 2021 Peter Trško
 -- License:     BSD3
 --
@@ -8,8 +8,8 @@
 -- Stability:   experimental
 -- Portability: GHC specific language extensions; POSIX.
 --
--- TODO: Module description.
-module Locale
+-- Represents locale (language & region).
+module TldrClient.Locale
     (
     -- * Index
       Locale(..)
