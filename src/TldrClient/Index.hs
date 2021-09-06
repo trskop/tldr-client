@@ -64,7 +64,6 @@ import qualified Database.SQLite.Simple as SQLite
     , execute
     , execute_
     , query
-    , query_
     , withConnection
     )
 import System.Directory (doesFileExist)
@@ -232,6 +231,7 @@ data ListQuery = ListQuery
     { sources :: Maybe (NonEmpty Text)
     , platforms :: Maybe (NonEmpty Text)
     , locales :: Maybe (NonEmpty Text)
+    , prefix :: Text
     }
   deriving stock (Eq, Show)
 
@@ -240,60 +240,68 @@ data ListQuery = ListQuery
 list :: MonadIO m => SQLite.Connection -> ListQuery -> m [Entry]
 list connection ListQuery{..} = liftIO if
   | Nothing <- sources, Nothing <- platforms, Nothing <- locales ->
-        SQLite.query_ connection
+        SQLite.query connection
             "SELECT source, command, platform, locale, content, file_path\
-            \ FROM pages_index"
+            \ FROM pages_index\
+            \ WHERE command LIKE ?"
+            (SQLite.Only prefix)
 
   | Just ss <- sources, Nothing <- platforms, Nothing <- locales ->
         concat <$> for ss \source ->
             SQLite.query connection
                 "SELECT source, command, platform, locale, content, file_path\
                 \ FROM pages_index\
-                \ WHERE source = ?"
-                (SQLite.Only source)
+                \ WHERE command LIKE ? \
+                \   AND source = ?"
+                (prefix <> "%", source)
 
   | Nothing <- sources, Just ps <- platforms, Nothing <- locales ->
         concat <$> for ps \platform ->
             SQLite.query connection
                 "SELECT source, command, platform, locale, content, file_path\
                 \ FROM pages_index\
-                \ WHERE platform = ?"
-                (SQLite.Only platform)
+                \ WHERE command LIKE ? \
+                \   AND platform = ?"
+                (prefix <> "%", platform)
 
   | Nothing <- sources, Nothing <- platforms, Just ls <- locales ->
         concat <$> for ls \locale ->
             SQLite.query connection
                 "SELECT source, command, platform, locale, content, file_path\
                 \ FROM pages_index\
-                \ WHERE locale = ?"
-                (SQLite.Only locale)
+                \ WHERE command LIKE ?\
+                \   AND locale = ?"
+                (prefix <> "%", locale)
 
   | Nothing <- sources, Just ps <- platforms, Just ls <- locales -> do
         concat <$> for ((,) <$> ps <*> ls) \(platform, locale) ->
             SQLite.query connection
                 "SELECT source, command, platform, locale, content, file_path\
                 \ FROM pages_index\
-                \ WHERE platform = ?\
+                \ WHERE command LIKE ?\
+                \   AND platform = ?\
                 \   AND locale = ?"
-                (platform, locale)
+                (prefix <> "%", platform, locale)
 
   | Just ss <- sources, Nothing <- platforms, Just ls <- locales -> do
         concat <$> for ((,) <$> ss <*> ls) \(source, locale) ->
             SQLite.query connection
                 "SELECT source, command, platform, locale, content, file_path\
                 \ FROM pages_index\
-                \ WHERE source = ?\
+                \ WHERE command LIKE ?\
+                \   AND source = ?\
                 \   AND locale = ?"
-                (source, locale)
+                (prefix <> "%", source, locale)
 
   | Just ss <- sources, Just ps <- platforms, Nothing <- locales -> do
         concat <$> for ((,) <$> ss <*> ps) \(source, platform) ->
             SQLite.query connection
                 "SELECT source, command, platform, locale, content, file_path\
                 \ FROM pages_index\
-                \ WHERE source = ?\
+                \ WHERE command LIKE ?\
+                \   AND source = ?\
                 \   AND platform = ?"
-                (source, platform)
+                (prefix <> "%", source, platform)
 
   | Just ss <- sources, Just ps <- platforms, Just ls <- locales -> do
         let params = (,,) <$> ss <*> ps <*> ls
@@ -301,10 +309,11 @@ list connection ListQuery{..} = liftIO if
             SQLite.query connection
                 "SELECT source, command, platform, locale, content, file_path\
                 \ FROM pages_index\
-                \ WHERE source = ?\
+                \ WHERE command LIKE ?\
+                \   AND source = ?\
                 \   AND platform = ?\
                 \   AND locale = ?"
-                (source, platform, locale)
+                (prefix <> "%", source, platform, locale)
 
 data PruneQuery
     = PruneQuery

@@ -1,5 +1,5 @@
 -- |
--- Module:      Client
+-- Module:      TldrClient.Client
 -- Description: Tldr pages client logic
 -- Copyright:   (c) 2021 Peter Trško
 -- License:     BSD3
@@ -9,7 +9,7 @@
 -- Portability: GHC specific language extensions; POSIX.
 --
 -- Tldr pages client logic.
-module Client
+module TldrClient.Client
     ( client
     , Action(..)
     , SomePlatform(..)
@@ -81,7 +81,7 @@ import System.IO.Temp (withTempDirectory, withTempFile)
 import qualified Tldr (renderPage)
 import qualified Tldr.Types as Tldr (ColorSetting({-NoColor,-} UseColor))
 
-import Configuration
+import TldrClient.Configuration
     ( Configuration(Configuration, sources, verbosity)
     , Source(Source, format, location, name)
     , SourceLocation(Local, Remote)
@@ -109,7 +109,7 @@ import qualified TldrClient.TldrPagesIndex as TldrPagesIndex
 
 data Action
     = Render (Maybe SomePlatform) (Maybe Locale) [Text] [String]
-    | List (Maybe SomePlatform) (Maybe Locale) [Text]
+    | List (Maybe SomePlatform) (Maybe Locale) [Text] [String]
     | Update [Text]
     | ClearCache (Maybe SomePlatform) (Maybe Locale) [Text]
   deriving stock (Eq, Show)
@@ -189,7 +189,7 @@ client config@Configuration{sources, verbosity} action = do
                 Just entry ->
                     renderEntry config cacheDirectory entry
 
-        List platformOverride localeOverride sourcesOverride -> do
+        List platformOverride localeOverride sourcesOverride prefix -> do
             locales <- getLocales config localeOverride
             entries <- SQLite.withConnection indexFile \connection -> do
                 let query = Index.ListQuery
@@ -200,6 +200,7 @@ client config@Configuration{sources, verbosity} action = do
                             nonEmpty sourcesOverride
                         , locales = Just (localeToText <$> locales)
                         , platforms = getPlatforms platformOverride
+                        , prefix = fromString (List.intercalate "-" prefix)
                         }
                 when (verbosity >= Verbosity.Annoying) do
                     hPutStrLn stderr ("DEBUG: Query: " <> show query)

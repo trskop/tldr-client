@@ -69,7 +69,7 @@ _dependencies:
   - &bytestring bytestring >=0.10 && <1
   - &case-insensitive case-insensitive >=1.2 && <2
   - &country-codes country-codes >=0.1.4 && <1
-  - &dhall dhall >=1.39.0 && <2
+  - &dhall dhall >=1.40.1 && <2
   - &directory directory >=1.3.5 && <2
   - &either either >=5.0.1.1 && <6
   - &filepath filepath >=1.4.2.1 && <2
@@ -121,17 +121,30 @@ library:
   dependencies:
       - *aeson
       - *bytestring
+      - *case-insensitive
       - *country-codes
       - *dhall
       - *directory
       - *directory
+      - *either
       - *filepath
       - *iso639
+      - *lens
       - *mainplate
       - *mtl
+      - *optparse-applicative
       - *prettyprinter
+      - *prettyprinter-ansi-terminal
+      - *safe
       - *sqlite-simple
+      - *temporary
+      - *terminal-size
+      - *terminfo
       - *text
+      - *tldr
+      - *verbosity
+      - *wreq
+      - *zip-archive
 
   when:
     - condition: flag(static)
@@ -147,28 +160,40 @@ executables:
     dependencies:
       - *this
 
-      - *bytestring
-      - *case-insensitive
-      - *dhall
       - *directory
-      - *either
-      - *filepath
-      - *lens
       - *mainplate
-      - *optparse-applicative
-      - *prettyprinter
-      - *prettyprinter-ansi-terminal
-      - *safe
-      - *sqlite-simple
-      - *temporary
-      - *terminal-size
-      - *terminfo
       - *text
-      - *tldr
-      - *tldr
       - *verbosity
-      - *wreq
-      - *zip-archive
+
+    ghc-options: ["-threaded"]
+
+    when:
+      - condition: flag(static)
+        ghc-options:
+          - -static
+          - -O2
+          - -fPIC
+        cpp-options:
+          - -DSTATIC_EXECUTABLE
+        cc-options:
+          - -static
+        ld-options:
+          - -static
+          - -pthread
+
+  command-wrapper-tldr:
+    source-dirs: app-subcommand
+    main: Main.hs
+    dependencies:
+      - *this
+
+      - *case-insensitive
+      - *directory
+      - *filepath
+      - *mainplate
+      - *mtl
+      - *text
+      - *verbosity
 
     ghc-options: ["-threaded"]
 

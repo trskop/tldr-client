@@ -2,15 +2,15 @@ let Verbosity = ./Verbosity.dhall
 
 let ColourOutput = ./ColourOutput.dhall
 
-let Locale = ./Locale.dhall
+let Locale = ../SubcommandConfig/Locale.dhall
 
 let NonEmpty = ../NonEmpty/package.dhall
 
-let Source = ./Source.dhall
+let Source = ../SubcommandConfig/Source.dhall
 
-let SourceFormat = ./SourceFormat.dhall
+let SourceFormat = ../SubcommandConfig/SourceFormat.dhall
 
-let SourceLocation = ./SourceLocation.dhall
+let SourceLocation = ../SubcommandConfig/SourceLocation.dhall
 
 let Config = ./Type.dhall
 

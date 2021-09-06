@@ -95,10 +95,20 @@ function main() {
     # │   └── share/
     # │       ├── man/man1/*.1.gz
     # │       └── tldr/pages/common/*.md
-    # └── ${target}-${version}-${arch}.tar.xz
+    # ├── ${target}-${version}-${arch}.tar.xz
+    # │
+    # ├── ${subcommandTarget}/
+    # │   ├── lib/command-wrapper/*
+    # │   ├── config/command-wrapper/**/*.dhall
+    # │   └── share/
+    # │       ├── man/man1/command-wrapper-*.1.gz
+    # │       └── tldr/pages/common/command-wrapper-*.md
+    # └── ${subcommandTarget}-${version}-${arch}.tar.xz
 
     local -r out="${root}/out"
     local -r dest="${out}/${target}"
+    local -r subcommandTarget='command-wrapper-tldr'
+    local -r subcommandDest="${out}/${subcommandTarget}"
 
     mkdir -p "${dest}/bin"
     stack \
@@ -108,19 +118,42 @@ function main() {
         "${flags[@]}" \
         "${target}"
 
-    cp -r "${root}/dhall" "${dest}/config"
+    mkdir -p "${subcommandDest}/lib/command-wrapper"
+    mv "${dest}/bin/${subcommandTarget}" \
+        "${subcommandDest}/lib/command-wrapper"
 
-    mkdir -p "${dest}/share/tldr"
-    cp -r "${root}/pages" "${dest}/share/tldr"
+    mkdir -p "${dest}/config" \
+        "${subcommandDest}/config/command-wrapper/tldr"
+    cp -r "${root}/dhall/SubcommandConfig" \
+        "${root}/dhall/Config" \
+        "${root}/dhall/NonEmpty" \
+        "${root}/dhall/config.dhall" \
+        "${dest}/config/"
+    cp -r "${root}/dhall/SubcommandConfig" \
+        "${root}/dhall/Config" \
+        "${root}/dhall/NonEmpty" \
+        "${subcommandDest}/config/command-wrapper/tldr/"
+    cp "${root}/dhall/${subcommandTarget}.dhall" \
+        "${subcommandDest}/config/command-wrapper/"
 
-    mkdir -p "${dest}/share/man/man1"
-    local -r -a manPages=('tldr.1' 'command-wrapper-tldr.1')
+    mkdir -p \
+        "${dest}/share/tldr/pages/common" \
+        "${subcommandDest}/share/tldr/pages/common"
+    cp "${root}/pages/common/tldr.md" \
+        "${dest}/share/tldr/pages/common"
+    cp "${root}/pages/common/${subcommandTarget}.md" \
+        "${subcommandDest}/share/tldr/pages/common"
+
+    mkdir -p "${dest}/share/man/man1" "${subcommandDest}/share/man/man1"
+    local -r -a manPages=('tldr.1' "${subcommandTarget}.1")
     for manPage in "${manPages[@]}"; do
         local src="${root}/man/${manPage}.md"
         local dst="${dest}/share/man/man1/${manPage}"
         pandoc --standalone --to=man --output="${dst}" "${src}"
         gzip --force --best "${dst}"
     done
+    mv "${dest}/share/man/man1/${subcommandTarget}.1.gz" \
+        "${subcommandDest}/share/man/man1"
 
     local version=
     version="$(
@@ -135,15 +168,25 @@ function main() {
     )"
 
     fakeroot -- bash <<EOF
-        chown -R root:root "${dest}"
-        find "${dest}"        -type d -print0 | xargs -0 chmod 755
-        find "${dest}/bin"    -type f -print0 | xargs -0 chmod 755
-        find "${dest}/share"  -type f -print0 | xargs -0 chmod 644
-        find "${dest}/config" -type f -print0 | xargs -0 chmod 644
+        chown -R root:root "${dest}" "${subcommandDest}"
+        find "${dest}" "${subcommandDest}" -type d -print0 \
+        | xargs -0 chmod 755
 
-        tar --directory="${out}" \
-            --create --xz --file="${out}/${target}-${version}-${arch}.tar.xz" \
+        find "${dest}/bin" "${subcommandDest}/lib/command-wrapper" \
+            -type f -print0 \
+        | xargs -0 chmod 755
+
+        find "${dest}/share" "${dest}/config" "${subcommandDest}/share" \
+            "${subcommandDest}/config" -type f -print0 \
+        | xargs -0 chmod 644
+
+        tar --directory="${out}" --create --xz \
+            --file="${out}/${target}-${version}-${arch}.tar.xz" \
             "${target}/"
+
+        tar --directory="${out}" --create --xz \
+            --file="${out}/${subcommandTarget}-${version}-${arch}.tar.xz" \
+            "${subcommandTarget}/"
 EOF
 }
 

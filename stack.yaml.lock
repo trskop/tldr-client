@@ -12,12 +12,12 @@ packages:
   original:
     hackage: country-codes-0.1.4
 - completed:
-    hackage: dhall-1.39.0@sha256:869eb2a0a18bd10ba19c91cc381e71c1e05aab73fe6d30b8f207901111a61afa,35170
+    hackage: dhall-1.40.1@sha256:5d4bb256d4c331b9e75a59677e21ca8cc55ad3ba1426edff7efd13c39f67f8ff,34635
     pantry-tree:
-      size: 310148
-      sha256: c2783652f7679c2ca065a5e6d0beb808fab16c0654c92f50d1cfd73b94efd814
+      size: 314278
+      sha256: 6b60951885f4a905a34412176a892b21a239778dc9f7a45439813e2e44273c0e
   original:
-    hackage: dhall-1.39.0
+    hackage: dhall-1.40.1
 - completed:
     hackage: tldr-0.9.1@sha256:f98f1622d31e1404de84d8fb3b1e5fdf907b6ae22745a125c1fcce4a7a661b3f,2265
     pantry-tree:

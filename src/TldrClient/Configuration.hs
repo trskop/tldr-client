@@ -1,5 +1,5 @@
 -- |
--- Module:      Configuration
+-- Module:      TldrClient.Configuration
 -- Description: Configuration data type and Dhall decoding for it
 -- Copyright:   (c) 2021 Peter Trško
 -- License:     BSD3
@@ -9,12 +9,13 @@
 -- Portability: GHC specific language extensions.
 --
 -- Configuration data type and Dhall decoding for it.
-module Configuration
+module TldrClient.Configuration
     ( Configuration(..)
     , Source(..)
     , SourceLocation(..)
     , SourceFormat(..)
-    , decodeConfiguration
+    , decodeStandaloneConfiguration
+    , decodeSubcommandConfiguration
     , mkDefConfiguration
     , getCacheDirectory
     , getLocales
@@ -30,7 +31,7 @@ import Data.Eq (Eq)
 import Data.Function (($), (.))
 import Data.Functor ((<$>))
 import Data.List.NonEmpty (NonEmpty((:|)))
-import Data.Maybe (Maybe(Nothing), maybe)
+import Data.Maybe (Maybe(Nothing), fromMaybe, maybe)
 import Data.Ord ((>=))
 import Data.Semigroup ((<>))
 import Data.String (String)
@@ -51,7 +52,6 @@ import Data.Output.Colour
     , terminalSupportsColours
     , useColoursWhen
     )
-import qualified Data.Output.Colour as ColourOutput (ColourOutput(Auto))
 import Data.Text (Text)
 import qualified Data.Text as Text (unpack)
 import Data.Verbosity (Verbosity)
@@ -93,10 +93,20 @@ data Configuration = Configuration
     }
   deriving stock (Eq, Show)
 
-decodeConfiguration :: Dhall.Decoder Configuration
-decodeConfiguration = Dhall.record do
+decodeStandaloneConfiguration :: Dhall.Decoder Configuration
+decodeStandaloneConfiguration = Dhall.record do
     verbosity <- Dhall.field "verbosity" Dhall.auto
     colourOutput <- Dhall.field "colourOutput" Dhall.auto
+    cacheDirectory <- Dhall.field "cacheDirectory" Dhall.auto
+    locale <- Dhall.field "locale" (Dhall.maybe decodeLocale)
+    sources <- Dhall.field "sources" (decodeNonEmpty decodeSource)
+    pure Configuration{..}
+
+decodeSubcommandConfiguration
+    :: Verbosity
+    -> ColourOutput
+    -> Dhall.Decoder Configuration
+decodeSubcommandConfiguration verbosity colourOutput = Dhall.record do
     cacheDirectory <- Dhall.field "cacheDirectory" Dhall.auto
     locale <- Dhall.field "locale" (Dhall.maybe decodeLocale)
     sources <- Dhall.field "sources" (decodeNonEmpty decodeSource)
@@ -125,9 +135,9 @@ data SourceLocation
 
 decodeSourceLocation :: Dhall.Decoder SourceLocation
 decodeSourceLocation = Dhall.union
-  (  (Local <$> Dhall.constructor "Local" Dhall.string)
-  <> (Remote <$> Dhall.constructor "Remote" (decodeNonEmpty Dhall.string))
-  )
+    (  (Local <$> Dhall.constructor "Local" Dhall.string)
+    <> (Remote <$> Dhall.constructor "Remote" (decodeNonEmpty Dhall.string))
+    )
 
 data SourceFormat
     = TldrPagesWithIndex
@@ -172,20 +182,26 @@ getLocales Configuration{verbosity, locale} override =
                     "Encountered unknown error, this usually indicates a bug."
         exitFailure
 
-mkDefConfiguration :: IO Configuration
-mkDefConfiguration = do
-    pure Configuration
-        { verbosity = Verbosity.Normal
-        , colourOutput = ColourOutput.Auto
-        , cacheDirectory = Nothing
-        , locale = Nothing
-        , sources = pure Source
-            { name = "tldr-pages"
-            , format = TldrPagesWithIndex
-            , location = Remote (assetsUrl1 :| [assetsUrl2])
-            }
-        }
+mkDefConfiguration
+    :: Maybe Source
+    -> Verbosity
+    -> ColourOutput
+    -> IO Configuration
+mkDefConfiguration possiblySource verbosity colourOutput = pure Configuration
+    { verbosity
+    , colourOutput
+    , cacheDirectory = Nothing -- Use default path, see `Configuration`.
+    , locale = Nothing -- Use locale environment variables, see `getLocales`.
+    , sources = pure (fromMaybe tldrPagesOfficialSource possiblySource)
+    }
   where
+    tldrPagesOfficialSource :: Source
+    tldrPagesOfficialSource = Source
+        { name = "tldr-pages"
+        , format = TldrPagesWithIndex
+        , location = Remote (assetsUrl1 :| [assetsUrl2])
+        }
+
     -- URLs are taken from:
     -- <https://github.com/tldr-pages/tldr/blob/main/CLIENT-SPECIFICATION.md>
     --
