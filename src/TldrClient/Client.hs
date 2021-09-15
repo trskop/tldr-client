@@ -31,7 +31,7 @@ import Data.Bool (Bool(True), (&&), not)
 import qualified Data.Char as Char (toLower)
 import Data.Either (Either(Left, Right))
 import Data.Eq (Eq, (/=))
-import Data.Foldable (for_, length, null)
+import Data.Foldable (concat, for_, length, null)
 import Data.Function (($), (.))
 import Data.Functor ((<$>), (<&>))
 import qualified Data.List as List (elem, filter, intercalate, notElem)
@@ -41,6 +41,7 @@ import Data.Maybe (Maybe(Just, Nothing), fromMaybe, listToMaybe)
 import Data.Ord ((>), (>=))
 import Data.Semigroup ((<>))
 import Data.String (String, fromString, unlines)
+import Data.Traversable (for)
 import System.Exit (exitFailure)
 import System.IO
     ( FilePath
@@ -82,7 +83,7 @@ import qualified Tldr (renderPage)
 import qualified Tldr.Types as Tldr (ColorSetting({-NoColor,-} UseColor))
 
 import TldrClient.Configuration
-    ( Configuration(Configuration, sources, verbosity)
+    ( Configuration(Configuration, sources, verbosity, prefixes)
     , Source(Source, format, location, name)
     , SourceLocation(Local, Remote)
     , SourceFormat(TldrPagesWithIndex, TldrPagesWithoutIndex)
@@ -109,7 +110,7 @@ import qualified TldrClient.TldrPagesIndex as TldrPagesIndex
 
 data Action
     = Render (Maybe SomePlatform) (Maybe Locale) [Text] [String]
-    | List (Maybe SomePlatform) (Maybe Locale) [Text] [String]
+    | List (Maybe SomePlatform) (Maybe Locale) [Text]
     | Update [Text]
     | ClearCache (Maybe SomePlatform) (Maybe Locale) [Text]
   deriving stock (Eq, Show)
@@ -144,7 +145,7 @@ parsePlatform s = case CI.mk s of
         Right (OtherPlatform (Char.toLower <$> s))
 
 client :: Configuration -> Action -> IO ()
-client config@Configuration{sources, verbosity} action = do
+client config@Configuration{sources, verbosity, prefixes} action = do
     when (verbosity >= Verbosity.Annoying) do
         -- TODO: Find a nicer way to print these:
         hPutStr stderr "DEBUG: " *> hPrint stderr config
@@ -162,19 +163,27 @@ client config@Configuration{sources, verbosity} action = do
             let command = List.intercalate "-" commands
             locales <- getLocales config localeOverride
             entries <- SQLite.withConnection indexFile \connection -> do
-                let query = Index.LookupQuery
-                        { command = fromString command
-                        , sources =
-                            -- TODO: The override source may not exist (be
-                            -- configured) and we should check it to git better
-                            -- error message.
-                            nonEmpty sourcesOverride
-                        , locales = Just (localeToText <$> locales)
-                        , platforms = getPlatforms platformOverride
-                        }
-                when (verbosity >= Verbosity.Annoying) do
-                    hPutStrLn stderr ("DEBUG: Query: " <> show query)
-                Index.lookup connection query
+                let doLookup prefix = do
+                        let query = Index.LookupQuery
+                                { command = prefix <> fromString command
+                                , sources =
+                                    -- TODO: The override source may not exist
+                                    -- (be configured) and we should check it
+                                    -- to git better error message.
+                                    nonEmpty sourcesOverride
+                                , locales = Just (localeToText <$> locales)
+                                , platforms = getPlatforms platformOverride
+                                }
+                        when (verbosity >= Verbosity.Annoying) do
+                            hPutStrLn stderr ("DEBUG: Query: " <> show query)
+                        Index.lookup connection query
+
+                if null prefixes
+                    then
+                        doLookup ""
+                    else
+                        concat <$> for prefixes \prefix ->
+                            doLookup (prefix <> "-")
 
             when (verbosity >= Verbosity.Annoying) do
                 hPutStrLn stderr "DEBUG: Entries that were found:"
@@ -189,22 +198,30 @@ client config@Configuration{sources, verbosity} action = do
                 Just entry ->
                     renderEntry config cacheDirectory entry
 
-        List platformOverride localeOverride sourcesOverride prefix -> do
+        List platformOverride localeOverride sourcesOverride -> do
             locales <- getLocales config localeOverride
             entries <- SQLite.withConnection indexFile \connection -> do
-                let query = Index.ListQuery
-                        { sources =
-                            -- TODO: The override source may not exist (be
-                            -- configured) and we should check it to git better
-                            -- error message.
-                            nonEmpty sourcesOverride
-                        , locales = Just (localeToText <$> locales)
-                        , platforms = getPlatforms platformOverride
-                        , prefix = fromString (List.intercalate "-" prefix)
-                        }
-                when (verbosity >= Verbosity.Annoying) do
-                    hPutStrLn stderr ("DEBUG: Query: " <> show query)
-                Index.list connection query
+                let doList prefix = do
+                        let query = Index.ListQuery
+                                { sources =
+                                    -- TODO: The override source may not exist
+                                    -- (be configured) and we should check it
+                                    -- to git better error message.
+                                    nonEmpty sourcesOverride
+                                , locales = Just (localeToText <$> locales)
+                                , platforms = getPlatforms platformOverride
+                                , prefix
+                                }
+                        when (verbosity >= Verbosity.Annoying) do
+                            hPutStrLn stderr ("DEBUG: Query: " <> show query)
+                        Index.list connection query
+
+                if null prefixes
+                    then
+                        doList ""
+                    else
+                        concat <$> for prefixes \prefix ->
+                            doList (prefix <> "-")
 
             for_ entries \entry -> do
                 let Index.Entry

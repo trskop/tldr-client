@@ -31,6 +31,7 @@ import Data.Eq (Eq)
 import Data.Function (($), (.))
 import Data.Functor ((<$>))
 import Data.List.NonEmpty (NonEmpty((:|)))
+import qualified Data.List.NonEmpty as NonEmpty (toList)
 import Data.Maybe (Maybe(Nothing), fromMaybe, maybe)
 import Data.Ord ((>=))
 import Data.Semigroup ((<>))
@@ -90,6 +91,12 @@ data Configuration = Configuration
     -- ^ `Nothing` means that `LANG` environment variable needs to be used at
     -- the time of execution.
     , sources :: NonEmpty Source
+    -- ^ List of sources of pages. See `Source` for details.
+    , prefixes :: [Text]
+    -- ^ Restrict operations to specific command prefixes. If empty, then there
+    -- is no restriction.
+    --
+    -- > ${prefix}-${command}
     }
   deriving stock (Eq, Show)
 
@@ -100,7 +107,10 @@ decodeStandaloneConfiguration = Dhall.record do
     cacheDirectory <- Dhall.field "cacheDirectory" Dhall.auto
     locale <- Dhall.field "locale" (Dhall.maybe decodeLocale)
     sources <- Dhall.field "sources" (decodeNonEmpty decodeSource)
-    pure Configuration{..}
+    pure Configuration
+        { prefixes = []
+        , ..
+        }
 
 decodeSubcommandConfiguration
     :: Verbosity
@@ -110,7 +120,11 @@ decodeSubcommandConfiguration verbosity colourOutput = Dhall.record do
     cacheDirectory <- Dhall.field "cacheDirectory" Dhall.auto
     locale <- Dhall.field "locale" (Dhall.maybe decodeLocale)
     sources <- Dhall.field "sources" (decodeNonEmpty decodeSource)
-    pure Configuration{..}
+    prefixes <- Dhall.field "prefixes" (decodeNonEmpty Dhall.auto)
+    pure Configuration
+        { prefixes = NonEmpty.toList prefixes
+        , ..
+        }
 
 data Source = Source
     { name :: Text
@@ -193,6 +207,7 @@ mkDefConfiguration possiblySource verbosity colourOutput = pure Configuration
     , cacheDirectory = Nothing -- Use default path, see `Configuration`.
     , locale = Nothing -- Use locale environment variables, see `getLocales`.
     , sources = pure (fromMaybe tldrPagesOfficialSource possiblySource)
+    , prefixes = []
     }
   where
     tldrPagesOfficialSource :: Source

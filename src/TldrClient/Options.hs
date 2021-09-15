@@ -130,7 +130,7 @@ import TldrClient.Client
     , parsePlatform
     )
 import TldrClient.Configuration
-    ( Configuration(Configuration, sources)
+    ( Configuration(Configuration, prefixes, sources)
     , Source(Source, name)
     , getCacheDirectory
     , shouldUseColours
@@ -173,6 +173,8 @@ data Params config = Params
     , programName :: String
     , configFile :: FilePath
     , configurationExpression :: Maybe Text
+    -- ^ Configuration expression passed via environment variable. `Nothing` if
+    -- no such environment variable was set.
     , decoder :: Dhall.Decoder config
     -- ^ Dhall 'Dhall.Decoder' consists of parser and expected type. Dhall
     -- library provides one special 'Dhall.Decoder':
@@ -258,23 +260,24 @@ parse Params{decoder = decoder@Dhall.Decoder{expected}, ..} = do
             exitSuccess
   where
     parseConfig :: Maybe Text -> IO config
-    parseConfig possiblyExpr = do
-        case possiblyExpr of
-            Just expr ->
-                Dhall.input decoder expr
+    parseConfig = \case
+        Just expr ->
+            -- Configuration passed via command line option: `--config=EXPR`
+            Dhall.input decoder expr
 
-            Nothing ->
-                case configurationExpression of
-                    Just expr ->
-                        Dhall.input decoder expr
+        Nothing ->
+            case configurationExpression of
+                Just expr ->
+                    -- Configuration passed via environment variable.
+                    Dhall.input decoder expr
 
-                    Nothing -> do
-                        configExists <- doesFileExist configFile
-                        if configExists
-                            then
-                                Dhall.inputFile decoder configFile
-                            else
-                                mkDefault verbosity colourOutput
+                Nothing -> do
+                    configExists <- doesFileExist configFile
+                    if configExists
+                        then
+                            Dhall.inputFile decoder configFile
+                        else
+                            mkDefault verbosity colourOutput
 
     printType :: IO ()
     printType = case expected of
@@ -290,7 +293,7 @@ parse Params{decoder = decoder@Dhall.Decoder{expected}, ..} = do
 
     infoMod :: Options.InfoMod a
     infoMod = Options.fullDesc
-        <> Options.header "Client for tldr-pages."
+        <> Options.header "Display and query tldr-pages."
         <> Options.footerDoc (Just $ footerDoc (\_ _ x -> x))
 
     footerDoc
@@ -517,7 +520,7 @@ parse Params{decoder = decoder@Dhall.Decoder{expected}, ..} = do
         )
       where
         listAction lang platform sources cfg =
-            Execute cfg (List platform lang sources [])
+            Execute cfg (List platform lang sources)
 
     clearCacheFlag :: Options.Parser
         (  Maybe Locale
@@ -786,7 +789,7 @@ parse Params{decoder = decoder@Dhall.Decoder{expected}, ..} = do
 data Shell = Bash | Fish | Zsh
 
 completer :: Configuration -> Shell -> Maybe Word -> [Text] -> IO ()
-completer config@Configuration{sources} _shell index words
+completer config@Configuration{sources, prefixes} _shell index words
   | previousOneOf ["--platform", "-p"] =
         completePlatform "" current
 
@@ -961,20 +964,19 @@ completer config@Configuration{sources} _shell index words
     completeConfig :: Text -> Text -> IO ()
     completeConfig = withPrefix \_ -> pure []
 
+    -- TODO: Incoroporate prefixes!
     completeArgument :: [Text] -> IO ()
     completeArgument cmds = do
         cacheDir <- getCacheDirectory config
-        Index.getIndexFile cacheDir >>= \case
-            Nothing ->
-                pure ()
-            Just indexFile -> do
-                list <- SQLite.withConnection indexFile \connection -> do
-                    let cmd = Text.intercalate "-" cmds
-                    List.sort <$> Index.getCommands connection cmd
-                for_ list \completion -> do
-                    let prefix = Text.intercalate "-"
-                            (maybe [] (<> [""]) (initMay cmds))
-                    Text.putStrLn (Text.drop (Text.length prefix) completion)
+        possiblyIndexFile <- Index.getIndexFile cacheDir
+        for_ possiblyIndexFile \indexFile -> do
+            list <- SQLite.withConnection indexFile \connection -> do
+                let cmd = Text.intercalate "-" cmds
+                List.sort <$> Index.getCommands connection cmd
+            for_ list \completion -> do
+                let prefix = Text.intercalate "-"
+                        (maybe [] (<> [""]) (initMay cmds))
+                Text.putStrLn (Text.drop (Text.length prefix) completion)
 
     withPrefix :: (Text -> IO [Text]) -> Text -> Text -> IO ()
     withPrefix f prefix word = do

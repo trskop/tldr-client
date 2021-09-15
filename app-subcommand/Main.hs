@@ -20,16 +20,18 @@ import Control.Applicative (pure)
 import Control.Monad (guard, when)
 import Data.Bool (not)
 import qualified Data.Char as Char (toLower)
+import Data.Foldable (elem)
 import Data.Function (($), (.))
 import Data.Functor ((<$), (<$>))
 import qualified Data.List as List (intercalate)
 import Data.Maybe (Maybe(Just), maybe)
+import Data.Ord ((>=))
 import Data.Semigroup ((<>))
 import Data.String (String)
 import qualified Data.String as String (unwords)
 import System.Exit (ExitCode(ExitFailure), exitWith)
 import System.IO (FilePath, IO, hPutStrLn, stderr)
-import Text.Show (show)
+import Text.Show (Show, show)
 
 import Control.Monad.Except (throwError)
 import qualified Data.CaseInsensitive as CI (mk)
@@ -42,14 +44,15 @@ import qualified Data.Output.Colour as ColourOutput
 import Data.Text (Text)
 import qualified Data.Text as Text (null, unpack)
 import Data.Verbosity (Verbosity)
-import qualified Data.Verbosity as Verbosity (parse)
+import qualified Data.Verbosity as Verbosity (Verbosity(Annoying), parse)
 import System.Directory (XdgDirectory(XdgConfig, XdgData), getXdgDirectory)
 import System.Environment.Parser (ParseEnv, ParseEnvError(..), parseEnvIO, var)
 import System.FilePath ((<.>), (</>))
 
-import TldrClient.Client (Action(..), client)
+import TldrClient.Client (client)
 import TldrClient.Configuration
-    ( Source(Source, format, location, name)
+    ( Configuration(Configuration, prefixes)
+    , Source(Source, format, location, name)
     , SourceFormat(TldrPagesWithoutIndex)
     , SourceLocation(Local)
     , decodeSubcommandConfiguration
@@ -62,7 +65,9 @@ import Paths_tldr_client (version)
 
 main :: IO ()
 main = do
-    Environment{..} <- parseEnvironment
+    env@Environment{..} <- parseEnvironment
+    when (verbosity >= Verbosity.Annoying) do
+        hPutStrLn stderr ("DEBUG: " <> show env)
     let toolset = Text.unpack toolsetName
         subcommand = Text.unpack subcommandName
     (config, action) <- Options.parse Options.Params
@@ -81,20 +86,15 @@ main = do
             }
         , runCompletion = Options.completer
         }
-    client config case action of
-        Render platformOverride localeOverride sourcesOverride commands ->
-            Render platformOverride localeOverride sourcesOverride
-                (toolset : commands)
+    client (updatePrefixes toolsetName config) action
 
-        List platformOverride localeOverride sourcesOverride prefix ->
-            List platformOverride localeOverride sourcesOverride
-                (toolset : prefix)
-
-        Update sourcesOverride ->
-            Update sourcesOverride
-
-        ClearCache platformOverride localeOverride sourcesOverride ->
-            ClearCache platformOverride localeOverride sourcesOverride
+updatePrefixes :: Text -> Configuration -> Configuration
+updatePrefixes toolsetName cfg@Configuration{prefixes} = cfg
+    { prefixes =
+        if toolsetName `elem` prefixes
+            then prefixes
+            else prefixes <> [toolsetName]
+    }
 
 data Environment = Environment
     { toolsetExe :: FilePath
@@ -107,6 +107,7 @@ data Environment = Environment
     , colourOutput :: ColourOutput
     , dataDirectory :: FilePath
     }
+  deriving stock (Show)
 
 parseEnvironment :: IO Environment
 parseEnvironment = do

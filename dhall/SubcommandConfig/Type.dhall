@@ -8,6 +8,7 @@ let Config =
       { cacheDirectory : Optional Text
       , locale : Optional Locale
       , sources : NonEmpty.Type Source
+      , prefixes : NonEmpty.Type Text
       }
 
 in  Config : Type
