@@ -61,5 +61,5 @@ More complicated example that can be turned into a library can be found in
 
 - [x] Command line completion.
 
-- [ ] [Command Wrapper](https://github.com/trskop/command-wrapper#readme)
+- [x] [Command Wrapper](https://github.com/trskop/command-wrapper#readme)
   support.

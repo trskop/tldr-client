@@ -11,8 +11,7 @@
 
 `TOOLSET_COMMAND tldr {{command}} {{subcommand}}`
 
-- Alternative way to show a tldr page for a specific command and its
-  subcommand (same effect as the above example):
+- Alternative way to show a tldr page for a specific command and its subcommand (same effect as the above example):
 
 `TOOLSET_COMMAND tldr {{command}}-{{subcommand}}`
 

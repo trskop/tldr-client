@@ -1,6 +1,6 @@
 % COMMAND-WRAPPER-TLDR(1) TLDR Pages Client | TLDR Pages Client
 % Peter Trsko
-% 31 August 2021
+% 18 September 2021
 
 # NAME
 
@@ -353,28 +353,29 @@ following following resolution algorithm:
 Default configuration that uses provided configuration library:
 
 ```dhall
-let Config = ./Config/package.dhall in Config::{=}
+let SubcommandConfig = ./tldr/SubcommandConfig/package.dhall
+
+in  SubcommandConfig::{=}
 ```
 
 Adding a user's tldr pages as an additional source:
 
 ```dhall
-let Config = ./Config/package.dhall
+let NonEmpty = ./tldr/NonEmpty/package.dhall
 
-let NonEmpty = ./NonEmpty/package.dhall
+let SubcommandConfig = ./tldr/SubcommandConfig/package.dhall
 
 let dataDir = env:XDG_DATA_HOME as Text ? "${env:HOME as Text}/.local/share"
 
 let userPages =
-      Config.Source
+      SubcommandConfig.Source
         { name = "user-tldr-pages"
-        , format = Config.SourceFormat.TldrPagesWithoutIndex
-        , location = Config.SourceLocation.Local "${dataDir}/tldr"
+        , format = SubcommandConfig.SourceFormat.TldrPagesWithoutIndex
+        , location = SubcommandConfig.SourceLocation.Local "${dataDir}/tldr"
         }
 
-in  Config::{
-    , sources =
-        NonEmpty.appendList Config.Source Config.default.sources [ userPages ]
+in  SubcommandConfig::{
+    , sources = NonEmpty.singleton Config.Source userPages
     }
 ```
 

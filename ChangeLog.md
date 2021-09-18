@@ -15,6 +15,8 @@ For latest version of this document see [`ChangeLog.md on GitHub`
   [tldr-pages client specification v1.5
   ](https://github.com/tldr-pages/tldr/blob/v1.5/CLIENT-SPECIFICATION.md)
 
+* Introduces Command Wrapper subcommand.
+
 ### 0.1.0.0
 
 Initial release; not uploaded to Hackage

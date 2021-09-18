@@ -84,7 +84,7 @@ main = do
             , location =
                 Local (dataDirectory </> "tldr" </> "pages" </> toolset)
             }
-        , runCompletion = Options.completer
+        , runCompletion = Options.completer . updatePrefixes toolsetName
         }
     client (updatePrefixes toolsetName config) action
 
