@@ -15,14 +15,17 @@ module Main
   where
 
 import Control.Applicative (pure)
+import Control.Monad (when)
 import Data.Function (($))
 import Data.Functor ((<$>))
 import Data.Maybe (Maybe(Nothing), fromMaybe)
+import Data.Ord ((>=))
 import Data.Semigroup ((<>))
 import Data.String (String)
 import System.Environment (getProgName)
 import System.Exit (ExitCode(ExitFailure), exitWith)
 import System.IO (FilePath, IO, hPutStrLn, stderr)
+import Text.Show (Show, show)
 
 import Data.Output.Colour (ColourOutput)
 import qualified Data.Output.Colour as ColourOutput
@@ -32,7 +35,7 @@ import qualified Data.Output.Colour as ColourOutput
 import Data.Text (Text)
 import qualified Data.Text as Text (unpack)
 import Data.Verbosity (Verbosity)
-import qualified Data.Verbosity as Verbosity (Verbosity(Normal))
+import qualified Data.Verbosity as Verbosity (Verbosity(Annoying, Normal))
 import System.Directory (XdgDirectory(XdgConfig), getXdgDirectory)
 import System.Environment.Parser (ParseEnvError(..), optionalVar, parseEnvIO)
 
@@ -41,25 +44,31 @@ import TldrClient.Configuration
     ( decodeStandaloneConfiguration
     , mkDefConfiguration
     )
-import qualified TldrClient.Options as Options (Params(..), completer, parse)
+import qualified TldrClient.Options as Options
+    ( Params(..)
+    , ProgramName(StandaloneApplication)
+    , completer
+    , parse
+    )
 
 import Paths_tldr_client (version)
 
 
 main :: IO ()
 main = do
-    Environment{..} <- parseEnvironment
-    -- TODO: Better error message when parsing environment variable(s) fails.
+    env@Environment{..} <- parseEnvironment
+    when (verbosity >= Verbosity.Annoying) do
+        hPutStrLn stderr (programName <> ": Debug: " <> show env)
     (config, action) <- Options.parse Options.Params
         { version
         , colourOutput
         , verbosity
-        , programName
+        , programName = Options.StandaloneApplication programName
         , configFile
         , configurationExpression
         , decoder = decodeStandaloneConfiguration
         , mkDefault = mkDefConfiguration Nothing
-        , runCompletion = Options.completer
+        , runCompletion = Options.completer version
         }
     client config action
 
@@ -70,11 +79,12 @@ data Environment = Environment
     , verbosity :: Verbosity
     , colourOutput :: ColourOutput
     }
+  deriving stock (Show)
 
 parseEnvironment :: IO Environment
 parseEnvironment = do
     programName <- getProgName
-    env@Environment{configFile} <- parseEnvIO () dieEnvError do
+    env@Environment{configFile} <- parseEnvIO () (dieEnvError programName) do
         colourOutput <- fromMaybe ColourOutput.Auto <$> do
             ColourOutput.noColorEnvVar
         configurationExpression <- optionalVar "TLDR_CONFIG"
@@ -87,9 +97,9 @@ parseEnvironment = do
     absoluteConfigFile <- getXdgDirectory XdgConfig configFile
     pure env{configFile = absoluteConfigFile}
   where
-    dieEnvError :: ParseEnvError -> IO a
-    dieEnvError err = do
-        hPutStrLn stderr $ "Error: " <> case err of
+    dieEnvError :: String -> ParseEnvError -> IO a
+    dieEnvError programName err = do
+        hPutStrLn stderr $ programName <> ": Error: " <> case err of
             ParseEnvError name msg ->
                 Text.unpack name <> ": " <> msg
             MissingEnvVarError name ->

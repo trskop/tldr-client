@@ -21,6 +21,10 @@ module TldrClient.Configuration
     , getLocales
     , getUseColours
     , shouldUseColours
+    -- * Messages
+    , putDebugLn
+    , putWarningLn
+    , putErrorLn
     )
   where
 
@@ -28,7 +32,7 @@ import Control.Applicative ((<|>), pure)
 import Control.Monad (when)
 import Data.Bool (Bool(False))
 import Data.Eq (Eq)
-import Data.Function (($), (.))
+import Data.Function ((.))
 import Data.Functor ((<$>))
 import Data.List.NonEmpty (NonEmpty((:|)))
 import qualified Data.List.NonEmpty as NonEmpty (toList)
@@ -56,7 +60,7 @@ import Data.Output.Colour
 import Data.Text (Text)
 import qualified Data.Text as Text (unpack)
 import Data.Verbosity (Verbosity)
-import qualified Data.Verbosity as Verbosity (Verbosity(Normal))
+import qualified Data.Verbosity as Verbosity (Verbosity(Annoying, Normal))
 import Dhall (FromDhall)
 import qualified Dhall
     ( Decoder
@@ -77,7 +81,9 @@ import TldrClient.Locale (Locale, decodeLocale, languagePreference)
 
 
 data Configuration = Configuration
-    { verbosity :: Verbosity
+    { programName :: String
+    -- ^ Program name as it should be used in error, debug, and other messages.
+    , verbosity :: Verbosity
     -- ^ How verbose the application should be by default.
     , colourOutput :: ColourOutput
     -- ^ Should colours be used on terminal by the application?
@@ -100,8 +106,8 @@ data Configuration = Configuration
     }
   deriving stock (Eq, Show)
 
-decodeStandaloneConfiguration :: Dhall.Decoder Configuration
-decodeStandaloneConfiguration = Dhall.record do
+decodeStandaloneConfiguration :: String -> Dhall.Decoder Configuration
+decodeStandaloneConfiguration programName = Dhall.record do
     verbosity <- Dhall.field "verbosity" Dhall.auto
     colourOutput <- Dhall.field "colourOutput" Dhall.auto
     cacheDirectory <- Dhall.field "cacheDirectory" Dhall.auto
@@ -115,16 +121,18 @@ decodeStandaloneConfiguration = Dhall.record do
 decodeSubcommandConfiguration
     :: Verbosity
     -> ColourOutput
+    -> String
     -> Dhall.Decoder Configuration
-decodeSubcommandConfiguration verbosity colourOutput = Dhall.record do
-    cacheDirectory <- Dhall.field "cacheDirectory" Dhall.auto
-    locale <- Dhall.field "locale" (Dhall.maybe decodeLocale)
-    sources <- Dhall.field "sources" (decodeNonEmpty decodeSource)
-    prefixes <- Dhall.field "prefixes" (decodeNonEmpty Dhall.auto)
-    pure Configuration
-        { prefixes = NonEmpty.toList prefixes
-        , ..
-        }
+decodeSubcommandConfiguration verbosity colourOutput programName =
+    Dhall.record do
+        cacheDirectory <- Dhall.field "cacheDirectory" Dhall.auto
+        locale <- Dhall.field "locale" (Dhall.maybe decodeLocale)
+        sources <- Dhall.field "sources" (decodeNonEmpty decodeSource)
+        prefixes <- Dhall.field "prefixes" (decodeNonEmpty Dhall.auto)
+        pure Configuration
+            { prefixes = NonEmpty.toList prefixes
+            , ..
+            }
 
 data Source = Source
     { name :: Text
@@ -175,40 +183,42 @@ getCacheDirectory Configuration{cacheDirectory} =
     maybe (getXdgDirectory XdgCache "tldr-client") pure cacheDirectory
 
 getLocales :: Configuration -> Maybe Locale -> IO (NonEmpty Locale)
-getLocales Configuration{verbosity, locale} override =
+getLocales config@Configuration{locale} override =
     maybe (parseEnvIO () dieParseEnvError languagePreference) (pure . pure)
         (override <|> locale)
   where
     dieParseEnvError :: ParseEnvError -> IO a
     dieParseEnvError err = do
-        when (verbosity >= Verbosity.Normal) do
-            hPutStrLn stderr $ "Error: " <> case err of
-                ParseEnvError var msg ->
-                    Text.unpack var
-                    <> ": Failed to parse environment variable: "
-                    <> msg
-                MissingEnvVarError var ->
-                    Text.unpack var
-                    <> ": Missing required environment variable."
-                ErrorMessage msg ->
-                    msg
-                UnknownError ->
-                    "Encountered unknown error, this usually indicates a bug."
+        putErrorLn config stderr case err of
+            ParseEnvError var msg ->
+                Text.unpack var
+                <> ": Failed to parse environment variable: "
+                <> msg
+            MissingEnvVarError var ->
+                Text.unpack var
+                <> ": Missing required environment variable."
+            ErrorMessage msg ->
+                msg
+            UnknownError ->
+                "Encountered unknown error, this usually indicates a bug."
         exitFailure
 
 mkDefConfiguration
     :: Maybe Source
     -> Verbosity
     -> ColourOutput
+    -> String
     -> IO Configuration
-mkDefConfiguration possiblySource verbosity colourOutput = pure Configuration
-    { verbosity
-    , colourOutput
-    , cacheDirectory = Nothing -- Use default path, see `Configuration`.
-    , locale = Nothing -- Use locale environment variables, see `getLocales`.
-    , sources = pure (fromMaybe tldrPagesOfficialSource possiblySource)
-    , prefixes = []
-    }
+mkDefConfiguration possiblySource verbosity colourOutput programName =
+    pure Configuration
+        { programName
+        , verbosity
+        , colourOutput
+        , cacheDirectory = Nothing -- Use default path, see `Configuration`.
+        , locale = Nothing -- Use locale environment variables, see `getLocales`.
+        , sources = pure (fromMaybe tldrPagesOfficialSource possiblySource)
+        , prefixes = []
+        }
   where
     tldrPagesOfficialSource :: Source
     tldrPagesOfficialSource = Source
@@ -238,3 +248,18 @@ shouldUseColours handle = useColoursWhen do
     if otputIsTerminal
         then terminalSupportsColours <$> setupTermFromEnv
         else pure False
+
+putDebugLn :: Configuration -> Handle -> String -> IO ()
+putDebugLn Configuration{programName, verbosity} handle msg =
+    when (verbosity >= Verbosity.Annoying) do
+        hPutStrLn handle (programName <> ": Debug: " <> msg)
+
+putWarningLn :: Configuration -> Handle -> String -> IO ()
+putWarningLn Configuration{programName, verbosity} handle msg =
+    when (verbosity >= Verbosity.Normal) do
+        hPutStrLn handle (programName <> ": Warning: " <> msg)
+
+putErrorLn :: Configuration -> Handle -> String -> IO ()
+putErrorLn Configuration{programName, verbosity} handle msg =
+    when (verbosity >= Verbosity.Normal) do
+        hPutStrLn handle (programName <> ": Error: " <> msg)

@@ -10,7 +10,7 @@
 --
 -- Command-line options for a Tldr Client binary.
 module TldrClient.Options
-    ( Mode(..)
+    ( ProgramName(..)
     , Params(..)
     , parse
     , completer
@@ -24,6 +24,7 @@ import Control.Exception (throwIO)
 import Control.Monad ((>>=), guard)
 import Control.Monad.Fail (fail)
 import Data.Bool (Bool(False), not, otherwise)
+import Data.Char (Char)
 import Data.Eq ((==))
 import Data.Foldable (any, concat, for_, length, null, sum)
 import Data.Function (($), (.))
@@ -45,16 +46,24 @@ import Data.Semigroup ((<>))
 import Data.String (String, fromString)
 import qualified Data.String as String (words)
 import Data.Traversable (for)
-import Data.Version (Version, makeVersion)
+import Data.Version (Version, makeVersion, showVersion)
 import Data.Word (Word)
-import System.Environment (getArgs)
+import System.Environment (getArgs, getEnvironment)
 import System.Exit
     ( ExitCode(ExitSuccess)
     , exitFailure
     , exitSuccess
     , exitWith
     )
-import System.IO (FilePath, IO, hIsTerminalDevice, hPutStrLn, stderr, stdout)
+import System.IO
+    ( FilePath
+    , Handle
+    , IO
+    , hIsTerminalDevice
+    , hPutStrLn
+    , stderr
+    , stdout
+    )
 
 import Data.CaseInsensitive (CI)
 import qualified Data.Either.Validation as Validation
@@ -72,7 +81,7 @@ import qualified Data.Text as Text
     )
 import qualified Data.Text.IO as Text (putStr, putStrLn)
 import Data.Verbosity (Verbosity)
-import qualified Dhall (Decoder(Decoder, expected), input, inputFile)
+import qualified Dhall (Decoder(expected), input, inputFile)
 import qualified Options.Applicative as Options
     ( InfoMod
     , Parser
@@ -167,28 +176,80 @@ data Mode
     | Completion (Maybe Text) Shell (Maybe Word) [Text]
     -- ^ Do command-line completion.
 
+data ProgramName
+    = StandaloneApplication String
+    -- ^ Executable \/ command name.
+    | CommandWrapperSubcommand String String
+    -- ^ Toolset and subcommand name.
+
+programNameToString :: ProgramName -> String
+programNameToString = \case
+    StandaloneApplication command ->
+        command
+    CommandWrapperSubcommand toolset subcommand ->
+        toolset <> " " <> subcommand
+
+-- | Generate program name as used in usage lines.
+--
+-- In case of `StandaloneApplication` it's only:
+--
+-- > ${command}
+--
+-- And in case of `CommandWrapperSubcommand` it is:
+--
+-- > ${toolset} [GLOBAL_OPTIONS] ${subcommand}
+programNameToDoc :: PrettyUtils -> ProgramName -> Options.Doc
+programNameToDoc PrettyUtils{metavar} = \case
+    StandaloneApplication command ->
+        Options.string command
+    CommandWrapperSubcommand toolset subcommand ->
+        Options.fillSep
+            [ Options.string toolset
+            , Options.brackets (metavar "GLOBAL_OPTIONS")
+            , Options.string subcommand
+            ]
+
+-- | Generates usage line like:
+--
+-- > ${toolset} [GLOBAL_OPTIONS] help [--man] ${subcommand}
+--
+-- Returns `Nothing` when `ProgramName` is `StandaloneApplication` as the above
+-- usage line is useful only for Command Wrapper subcommands.
+programNameToHelpDoc :: PrettyUtils -> ProgramName -> Maybe Options.Doc
+programNameToHelpDoc PrettyUtils{flag, metavar} = \case
+    StandaloneApplication _ ->
+        Nothing
+    CommandWrapperSubcommand toolset subcommand ->
+        Just $ Options.fillSep
+            [ Options.string toolset
+            , Options.brackets (metavar "GLOBAL_OPTIONS")
+            , "help"
+            , Options.brackets (flag "man")
+            , Options.string subcommand
+            ]
+
+-- | Parameters passed to `parse` function to avoid ad-hoc function arguments
+-- antipattern.
 data Params config = Params
     { version :: Version
+    -- ^ Application version printed in @--version@ mode.
     , colourOutput :: ColourOutput
     , verbosity :: Verbosity
-    , programName :: String
+    , programName :: ProgramName
+    -- ^ Command \/ application name as it is visible to the user.
     , configFile :: FilePath
+    -- ^ Configuration file to read when there is no configuration provided.
     , configurationExpression :: Maybe Text
     -- ^ Configuration expression passed via environment variable. `Nothing` if
     -- no such environment variable was set.
-    , decoder :: Dhall.Decoder config
-    -- ^ Dhall 'Dhall.Decoder' consists of parser and expected type. Dhall
-    -- library provides one special 'Dhall.Decoder':
-    --
-    -- @
-    -- 'Dhall.auto' :: 'Dhall.FromDhall' a => 'Dhall.Decoder' a
-    -- @
-    --
-    -- Which allows us to use type class mechanism for deriving and combining
-    -- parsers and is a good default in many cases.
-    , mkDefault :: Verbosity -> ColourOutput -> IO config
+    , decoder :: String -> Dhall.Decoder config
+    -- ^ Dhall 'Dhall.Decoder' consists of parser and expected type. The
+    -- `String` parameter is rendered @programName :: `ProgramName`@ field
+    -- value.
+    , mkDefault :: Verbosity -> ColourOutput -> String -> IO config
     -- ^ Construct default configuration if there is no configuration
-    -- available.
+    -- available. The `String` parameter is rendered
+    -- @programName :: `ProgramName`@ field value.
     , runCompletion :: config -> Shell -> Maybe Word -> [Text] -> IO ()
     -- ^ Command-line completer.
     }
@@ -210,7 +271,7 @@ data Params config = Params
 --   of making it monomorphic. This will allow us to enforce that this code
 --   only deals with command-line interface.
 parse :: forall config. Params config -> IO (config, Action)
-parse Params{decoder = decoder@Dhall.Decoder{expected}, ..} = do
+parse Params{..} = do
     execOptionsParser >>= \case
         Execute possiblyConfig action ->
             (, action) <$> parseConfig possiblyConfig
@@ -262,27 +323,29 @@ parse Params{decoder = decoder@Dhall.Decoder{expected}, ..} = do
             exitSuccess
   where
     parseConfig :: Maybe Text -> IO config
-    parseConfig = \case
-        Just expr ->
-            -- Configuration passed via command line option: `--config=EXPR`
-            Dhall.input decoder expr
+    parseConfig commandLineExpr = do
+        let decoder' = decoder programNameStr
+        case commandLineExpr of
+            Just expr ->
+                -- Configuration passed via command line option: `--config=EXPR`
+                Dhall.input decoder' expr
 
-        Nothing ->
-            case configurationExpression of
-                Just expr ->
-                    -- Configuration passed via environment variable.
-                    Dhall.input decoder expr
+            Nothing ->
+                case configurationExpression of
+                    Just expr ->
+                        -- Configuration passed via environment variable.
+                        Dhall.input decoder' expr
 
-                Nothing -> do
-                    configExists <- doesFileExist configFile
-                    if configExists
-                        then
-                            Dhall.inputFile decoder configFile
-                        else
-                            mkDefault verbosity colourOutput
+                    Nothing -> do
+                        configExists <- doesFileExist configFile
+                        if configExists
+                            then
+                                Dhall.inputFile decoder' configFile
+                            else
+                                mkDefault verbosity colourOutput programNameStr
 
     printType :: IO ()
-    printType = case expected of
+    printType = case Dhall.expected (decoder programNameStr) of
         Validation.Success expr ->
             Prettyprinter.putDoc
                 ( Prettyprinter.pretty expr
@@ -293,23 +356,18 @@ parse Params{decoder = decoder@Dhall.Decoder{expected}, ..} = do
             -- This indicates a bug in the Decoder.
             throwIO err
 
+    programNameStr :: String
+    programNameStr = programNameToString programName
+
     infoMod :: Options.InfoMod a
     infoMod = Options.fullDesc
         <> Options.header "Display and query tldr-pages."
-        <> Options.footerDoc (Just $ footerDoc (\_ _ x -> x))
+        <> Options.footerDoc (Just $ footerDoc (mkPrettyUtils \_ _ x -> x))
 
-    footerDoc
-        ::  ( (Options.Doc -> Options.Doc)
-            -> (Options.Doc -> Options.Doc)
-            -> Options.Doc -> Options.Doc
-            )
-        -> Options.Doc
-    footerDoc colour =
+    footerDoc :: PrettyUtils -> Options.Doc
+    footerDoc PrettyUtils{value} =
         "User configuration file is read from:"
         <+> value (Options.string configFile)
-      where
-        value :: Options.Doc -> Options.Doc
-        value = colour Options.magenta Options.underline
 
     execOptionsParser :: IO Mode
     execOptionsParser = do
@@ -320,31 +378,25 @@ parse Params{decoder = decoder@Dhall.Decoder{expected}, ..} = do
                 pure r
 
             Options.Failure failure -> do
-                let (help, exit, _) = Options.execFailure failure programName
+                let (help, exit, _) =
+                        Options.execFailure failure programNameStr
+
                     Options.ParserHelp{helpBody, helpFooter, helpUsage} = help
 
-                    renderHelp
-                        ::  ( (Options.Doc -> Options.Doc)
-                            -> (Options.Doc -> Options.Doc)
-                            -> Options.Doc -> Options.Doc
-                            )
-                        -> Int
-                        -> String
-                    renderHelp applyTerminalStyle cols =
-                        Options.renderHelp cols help
-                            -- We want to set better help message iff the
-                            -- original help message piece is not empty. This
-                            -- way we are respecting options parser
-                            -- preferences.
-                            { Options.helpUsage =
-                                helpUsage $> usage (Options.string programName)
-                                   applyTerminalStyle
-                            , Options.helpBody =
-                                helpBody $> optionsDoc applyTerminalStyle
-                            , Options.helpFooter =
-                                helpFooter $> footerDoc applyTerminalStyle
-                            }
+                    renderHelp :: PrettyUtils -> Int -> String
+                    renderHelp prettyUtils cols = Options.renderHelp cols help
+                        -- We want to set better help message iff the original
+                        -- help message piece is not empty. This way we are
+                        -- respecting options parser preferences.
+                        { Options.helpUsage =
+                            helpUsage $> usage prettyUtils
+                        , Options.helpBody =
+                            helpBody $> optionsDoc prettyUtils
+                        , Options.helpFooter =
+                            helpFooter $> footerDoc prettyUtils
+                        }
 
+                    handle :: Handle
                     handle = if exit == ExitSuccess then stdout else stderr
 
                 applyTerminalStyle <- do
@@ -357,103 +409,99 @@ parse Params{decoder = decoder@Dhall.Decoder{expected}, ..} = do
                 cols <- Terminal.hSize handle <&> \case
                     Nothing -> 80
                     Just Terminal.Window{width} -> width
-                hPutStrLn handle (renderHelp applyTerminalStyle cols)
+                let prettyUtils = mkPrettyUtils applyTerminalStyle
+                hPutStrLn handle (renderHelp prettyUtils cols)
                 exitWith exit
 
             Options.CompletionInvoked{} ->
                 -- We don't use optparse-applicative command line completion.
                 exitFailure
 
-    usage
-        :: Options.Doc
-        ->  ( (Options.Doc -> Options.Doc)
-            -> (Options.Doc -> Options.Doc)
-            -> Options.Doc -> Options.Doc
-            )
-        -> Options.Doc
-    usage programName' colour = Options.nest 2 $ Options.vsep
-        [ "Usage:"
-        , ""
-        , Options.hang 2 $ Options.fillSep
-            [ programName'
-            , configDoc, platformDoc, languageDoc, sourceDoc
-            , metavar "COMMAND"
-            , Options.brackets (metavar "SUBCOMMAND" <+> ellipsis)
+    usage :: PrettyUtils -> Options.Doc
+    usage prettyUtils = Options.nest 2 $ Options.vsep
+        (   [ "Usage:"
+            , ""
+            , Options.hang 2 $ Options.fillSep
+                [ programName'
+                , configDoc, platformDoc, languageDoc, sourceDoc
+                , metavar "COMMAND"
+                , Options.brackets (metavar "SUBCOMMAND" <+> ellipsis)
+                ]
+            , Options.hang 2 $ Options.fillSep
+                [ programName'
+                , Options.braces (alt [flag "list", shortFlag 'l'])
+                , configDoc, platformDoc, languageDoc, sourceDoc
+                ]
+            , Options.hang 2 $ Options.fillSep
+                [ programName'
+                , Options.braces (alt [flag "update", shortFlag 'u'])
+                , configDoc, platformDoc, languageDoc, sourceDoc
+                ]
+            , Options.hang 2 $ Options.fillSep
+                [ programName'
+                , flag "clear-cache"
+                , configDoc, platformDoc, languageDoc, sourceDoc
+                ]
+            , Options.hang 2 $ Options.fillSep
+                [ programName'
+                , Options.braces
+                    (alt [flag "config-typecheck", flag "config-print-type"])
+                , configDoc
+                ]
+            , Options.hang 2 $ Options.fillSep
+                [ programName'
+                , Options.braces (alt [flag "version", shortFlag 'v'])
+                ]
+            , Options.hang 2 $ Options.fillSep
+                [ programName'
+                , Options.braces (alt [flag "help", shortFlag 'h'])
+                ]
             ]
-        , Options.hang 2 $ Options.fillSep
-            [ programName'
-            , Options.braces (alt [flag "--list", flag "-l"])
-            , configDoc, platformDoc, languageDoc, sourceDoc
-            ]
-        , Options.hang 2 $ Options.fillSep
-            [ programName'
-            , Options.braces (alt [flag "--update", flag "-u"])
-            , configDoc, platformDoc, languageDoc, sourceDoc
-            ]
-        , Options.hang 2 $ Options.fillSep
-            [ programName'
-            , flag "--clear-cache"
-            , configDoc, platformDoc, languageDoc, sourceDoc
-            ]
-        , Options.hang 2 $ Options.fillSep
-            [ programName'
-            , Options.braces
-                (alt [flag "--config-typecheck", flag "--config-print-type"])
-            , configDoc
-            ]
-        , Options.hang 2 $ Options.fillSep
-            [ programName'
-            , Options.braces (alt [flag "--version", flag "-v"])
-            ]
-        , Options.hang 2 $ Options.fillSep
-            [ programName'
-            , Options.braces (alt [flag "--help", flag "-h"])
-            ]
-        ]
+        <> commandWrapperHelp
+        )
       where
-        alt :: [Options.Doc] -> Options.Doc
-        alt = \case
-            [] -> ""
-            (d : ds) -> d <> mconcat (List.zipWith (<>) (List.repeat "|") ds)
+        PrettyUtils
+            { alt
+            , ellipsis
+            , flag
+            , metavar
+            , opt
+            , shortFlag
+            , shortOpt
+            } = prettyUtils
 
-        flag :: Options.Doc -> Options.Doc
-        flag = colour Options.dullgreen Options.bold
-
-        opt :: Options.Doc -> Options.Doc -> Options.Doc
-        opt o v = flag o <> "=" <> metavar v
-
-        shortOpt :: Options.Doc -> Options.Doc -> Options.Doc
-        shortOpt o v = flag o <> " " <> metavar v
-
-        metavar :: Options.Doc -> Options.Doc
-        metavar = colour Options.dullgreen Options.underline
-
-        ellipsis :: Options.Doc
-        ellipsis = Options.brackets "..."
+        programName' :: Options.Doc
+        programName' = programNameToDoc prettyUtils programName
 
         configDoc :: Options.Doc
-        configDoc = Options.brackets (opt "--config" "EXPR")
+        configDoc = Options.brackets (opt "config" "EXPR")
 
         platformDoc :: Options.Doc
         platformDoc = Options.brackets
             ( Options.braces
-                (alt [opt "--platform" "PLATFORM", shortOpt "-p" "PLATFORM"])
+                (alt [opt "platform" "PLATFORM", shortOpt 'p' "PLATFORM"])
             <+> ellipsis
             )
 
         languageDoc :: Options.Doc
         languageDoc = Options.brackets
             ( Options.braces
-                (alt [opt "--language" "LANGUAGE", shortOpt "-L" "LANGUAGE"])
+                (alt [opt "language" "LANGUAGE", shortOpt 'L' "LANGUAGE"])
             <+> ellipsis
             )
 
         sourceDoc :: Options.Doc
         sourceDoc = Options.brackets
             ( Options.braces
-                (alt [opt "--source" "SOURCE", shortOpt "-s" "SOURCE"])
+                (alt [opt "source" "SOURCE", shortOpt 's' "SOURCE"])
             <+> ellipsis
             )
+
+        commandWrapperHelp :: [Options.Doc]
+        commandWrapperHelp =
+            case programNameToHelpDoc prettyUtils programName of
+                Nothing -> []
+                Just doc -> [Options.hang 2 doc]
 
     options :: Options.Parser Mode
     options =
@@ -621,164 +669,220 @@ parse Params{decoder = decoder@Dhall.Decoder{expected}, ..} = do
         <> Options.internal
         )
 
-    optionsDoc
-        ::  ( (Options.Doc -> Options.Doc)
-            -> (Options.Doc -> Options.Doc)
-            -> Options.Doc -> Options.Doc
-            )
-        -> Options.Doc
-    optionsDoc colour = Options.nest 2 $ Options.vsep
-        [ "Options:"
-        , ""
-        , Options.nest 4 $ Options.vsep
-            [ metavar "COMMAND"
-                <+> Options.brackets
-                    (metavar "SUBCOMMAND" <+> Options.brackets "...")
-            , Options.fillSep
-                [ paragraph "Show pages for a"
-                , metavar "COMMAND" <> "."
-                , "When"
-                , metavar "COMMAND"
-                , paragraph "is followed by"
-                , metavar "SUBCOMMAND" <> "s"
-                , paragraph "then they are treated as one command with dashes\
-                    \ in between. For example,"
-                , "\"" <> value "tldr git commit" <> "\""
-                , paragraph "is the same as"
-                , "\"" <> value "tldr git-commit" <> "\"."
+    optionsDoc :: PrettyUtils -> Options.Doc
+    optionsDoc prettyUtils = Options.nest 2 $ Options.vsep
+        (   [ "Options:"
+            , ""
+            , Options.nest 4 $ Options.vsep
+                [ metavar "COMMAND"
+                    <+> Options.brackets (metavar "SUBCOMMAND" <+> ellipsis)
+                , Options.fillSep
+                    [ paragraph "Show pages for a"
+                    , metavar "COMMAND" <> "."
+                    , "When"
+                    , metavar "COMMAND"
+                    , paragraph "is followed by"
+                    , metavar "SUBCOMMAND" <> "s"
+                    , paragraph "then they are treated as one command with\
+                        \ dashes in between. For example,"
+                    , "\"" <> value "tldr git commit" <> "\""
+                    , paragraph "is the same as"
+                    , "\"" <> value "tldr git-commit" <> "\"."
+                    ]
+                ]
+            , ""
+            , Options.nest 4 $ Options.vsep
+                [ list [opt "platform" "PLATFORM", shortOpt 'p' "PLATFORM"]
+                , Options.fillSep
+                    [ paragraph "Search or list pages for specified"
+                    , metavar "PLATFORM" <> "."
+                    , paragraph "If not option is omitted then the platform\
+                        \ the application is running on is used as a default."
+                    ]
+                ]
+            , ""
+            , Options.nest 4 $ Options.vsep
+                [ list [opt "language" "LANGUAGE", shortOpt 'L' "LANGUAGE"]
+                , Options.fillSep
+                    [ paragraph "Search/list pages written in"
+                    , metavar "LANGUAGE" <> "."
+                    , paragraph "Overrides default language detection\
+                        \ mechanism."
+                    ]
+                ]
+            , ""
+            , Options.nest 4 $ Options.vsep
+                [ list [opt "source" "SOURCE", shortOpt 's' "SOURCE"]
+                , Options.fillSep
+                    [ paragraph "Show, list, or update cache only for\
+                        \ specified"
+                    , metavar "SOURCE" <> "s;"
+                    , paragraph "by default all sources are used; this option\
+                        \ can be used multiple times to specify multiple"
+                    , metavar "SOURCE" <> "s."
+                    ]
+                ]
+            , ""
+            , Options.nest 4 $ Options.vsep
+                [ list [flag "list", shortFlag 'l']
+                , Options.fillSep
+                    [ paragraph "Lists all the pages for the current platform\
+                      \ to the standard output; if"
+                    , Options.squotes (flag "platform" <> "=" <> value "all")
+                    , paragraph "is specified then all pages in all platforms\
+                        \ are listed."
+                    ]
+                ]
+            , ""
+            , Options.nest 4 $ Options.vsep
+                [ list [flag "update", shortFlag 'u']
+                , Options.fillSep
+                    [ paragraph "Updates the offline cache of pages; if"
+                    , Options.squotes (opt "sources" "SOURCE")
+                    , paragraph "is specified only cache for those page"
+                    , metavar "SOURCE" <> "s"
+                    , paragraph "is updated."
+                    ]
+                ]
+            , ""
+            , Options.nest 4 $ Options.vsep
+                [ flag "clear-cache"
+                , Options.fillSep
+                    [ paragraph "Updates the offline cache of pages; if"
+                    , Options.squotes (opt "sources" "SOURCE")
+                    , paragraph "is specified only cache for those page"
+                    , metavar "SOURCE" <> "s"
+                    , paragraph "is updated."
+                    ]
+                ]
+            , ""
+            , Options.nest 4 $ Options.vsep
+                [ opt "config" "EXPR"
+                , Options.fillSep
+                    [ paragraph "Set configuration to"
+                    , metavar "EXPR" <> ","
+                    , "where"
+                    , metavar "EXPR"
+                    , paragraph "is a Dhall expression; if application fails\
+                      \ to parse or typecheck the"
+                    , metavar "EXPR"
+                    , paragraph "it terminates with exit code"
+                    , value "1" <> "."
+                    ]
+                ]
+            , ""
+            , Options.nest 4 $ Options.vsep
+                [ flag "config-typecheck"
+                , Options.fillSep
+                    [ paragraph "Typecheck the configuration and exit; exit\
+                        \ code"
+                    , value "0"
+                    , paragraph "is used on success and exit code"
+                    , value "1"
+                    , paragraph "on failure to typecheck."
+                    ]
+                ]
+            , ""
+            , Options.nest 4 $ Options.vsep
+                [ flag "config-print-type"
+                , Options.fillSep
+                    [ paragraph "Print Dhall type of configuration accepted by\
+                        \ the application."
+                    ]
+                ]
+            , ""
+            , Options.nest 4 $ Options.vsep
+                [ list [flag "version", shortFlag 'v']
+                , Options.fillSep
+                    [ paragraph "Print version information to standard output\
+                        \ and terminate with exit code"
+                    , value "0" <> "."
+                    ]
+                ]
+            , ""
+            , Options.nest 4 $ Options.vsep
+                [ list [flag "help", shortFlag 'h']
+                , Options.fillSep
+                    [ paragraph "Print help information to standard output and\
+                        \ terminate with exit code"
+                    , value "0" <> "."
+                    ]
                 ]
             ]
-        , ""
-        , Options.nest 4 $ Options.vsep
-            [ list [opt "--platform" "PLATFORM", shortOpt "-p" "PLATFORM"]
-            , Options.fillSep
-                [ paragraph "Search or list pages for specified"
-                , metavar "PLATFORM" <> "."
-                , paragraph "If not option is omitted then the platform the\
-                    \ application is running on is used as a default."
-                ]
-            ]
-        , ""
-        , Options.nest 4 $ Options.vsep
-            [ list [opt "--language" "LANGUAGE", shortOpt "-L" "LANGUAGE"]
-            , Options.fillSep
-                [ paragraph "Search/list pages written in"
-                , metavar "LANGUAGE" <> "."
-                , paragraph "Overrides default language detection mechanism."
-                ]
-            ]
-        , ""
-        , Options.nest 4 $ Options.vsep
-            [ list [opt "--source" "SOURCE", shortOpt "-s" "SOURCE"]
-            , Options.fillSep
-                [ paragraph "Show, list, or update cache only for specified"
-                , metavar "SOURCE" <> "s;"
-                , paragraph "by default all sources are used; this option can\
-                    \ be used multiple times to specify multiple"
-                , metavar "SOURCE" <> "s."
-                ]
-            ]
-        , ""
-        , Options.nest 4 $ Options.vsep
-            [ list [flag "--list", flag "-l"]
-            , Options.fillSep
-                [ paragraph "Lists all the pages for the current platform to\
-                  \ the standard output; if"
-                , Options.squotes (flag "--platform" <> "=" <> value "all")
-                , paragraph "is specified then all pages in all platforms are\
-                    \ listed."
-                ]
-            ]
-        , ""
-        , Options.nest 4 $ Options.vsep
-            [ list [flag "--update", flag "-u"]
-            , Options.fillSep
-                [ paragraph "Updates the offline cache of pages; if"
-                , Options.squotes (opt "--sources" "SOURCE")
-                , paragraph "is specified only cache for those page"
-                , metavar "SOURCE" <> "s"
-                , paragraph "is updated."
-                ]
-            ]
-        , ""
-        , Options.nest 4 $ Options.vsep
-            [ flag "--clear-cache"
-            , Options.fillSep
-                [ paragraph "Updates the offline cache of pages; if"
-                , Options.squotes (opt "--sources" "SOURCE")
-                , paragraph "is specified only cache for those page"
-                , metavar "SOURCE" <> "s"
-                , paragraph "is updated."
-                ]
-            ]
-        , ""
-        , Options.nest 4 $ Options.vsep
-            [ opt "--config" "CONFIG"
-            , Options.fillSep
-                [ paragraph "Set configuration to"
-                , metavar "EXPR" <> ","
-                , "where"
-                , metavar "EXPR"
-                , paragraph "is a Dhall expression; if application fails to\
-                  \ parse or typecheck the"
-                , metavar "EXPR"
-                , paragraph "it terminates with exit code"
-                , value "1" <> "."
-                ]
-            ]
-        , ""
-        , Options.nest 4 $ Options.vsep
-            [ flag "--config-typecheck"
-            , Options.fillSep
-                [ paragraph "Typecheck the configuration and exit; exit code"
-                , value "0"
-                , paragraph "is used on success and exit code"
-                , value "1"
-                , paragraph "on failure to typecheck."
-                ]
-            ]
-        , ""
-        , Options.nest 4 $ Options.vsep
-            [ flag "--config-print-type"
-            , Options.fillSep
-                [ paragraph "Print Dhall type of configuration accepted by the\
-                    \ application."
-                ]
-            ]
-        , ""
-        , Options.nest 4 $ Options.vsep
-            [ list [flag "--version", flag "-v"]
-            , Options.fillSep
-                [ paragraph "Print version information to standard output and\
-                    \ terminate with exit code"
-                , value "0" <> "."
-                ]
-            ]
-        , ""
-        , Options.nest 4 $ Options.vsep
-            [ list [flag "--help", flag "-h"]
-            , Options.fillSep
-                [ paragraph "Print help information to standard output and\
-                    \ terminate with exit code"
-                , value "0" <> "."
-                ]
-            ]
-        ]
+        <> globalOptions
+        )
       where
-        list :: [Options.Doc] -> Options.Doc
+        PrettyUtils
+            { ellipsis
+            , flag
+            , list
+            , metavar
+            , opt
+            , paragraph
+            , shortFlag
+            , shortOpt
+            , value
+            } = prettyUtils
+
+        globalOptions :: [Options.Doc]
+        globalOptions = case programName of
+            StandaloneApplication _command ->
+                []
+            CommandWrapperSubcommand toolset _subcommand ->
+                [ ""
+                , Options.nest 4 $ Options.vsep
+                    [ metavar "GLOBAL_OPTIONS"
+                    , Options.fillSep
+                        [ paragraph "See output of"
+                        , Options.squotes
+                            (value (Options.string toolset <+> "help"))
+                            <> "."
+                        ]
+                    ]
+                ]
+
+data PrettyUtils = PrettyUtils
+    { list :: [Options.Doc] -> Options.Doc
+    , flagDoc :: Options.Doc -> Options.Doc
+    , flag :: String -> Options.Doc
+    , shortFlag :: Char -> Options.Doc
+    , opt :: String -> String -> Options.Doc
+    , shortOpt :: Char -> String -> Options.Doc
+    , paragraph :: String -> Options.Doc
+    , metavar :: Options.Doc -> Options.Doc
+    , value :: Options.Doc -> Options.Doc
+    , alt :: [Options.Doc] -> Options.Doc
+    , ellipsis :: Options.Doc
+    }
+
+-- | Construct pretty printing utilities based on configuration.
+mkPrettyUtils
+    ::  ( (Options.Doc -> Options.Doc)
+        -> (Options.Doc -> Options.Doc)
+        -> Options.Doc -> Options.Doc
+        )
+    -> PrettyUtils
+mkPrettyUtils colour =
+    let list :: [Options.Doc] -> Options.Doc
         list = Options.encloseSep "" "" ", "
 
-        flag :: Options.Doc -> Options.Doc
-        flag = colour Options.dullgreen Options.bold
+        flagDoc :: Options.Doc -> Options.Doc
+        flagDoc = colour Options.dullgreen Options.bold
 
-        opt :: Options.Doc -> Options.Doc -> Options.Doc
-        opt o v = flag o <> "=" <> metavar v
+        flag :: String -> Options.Doc
+        flag s = flagDoc (Options.string ("--" <> s))
 
-        shortOpt :: Options.Doc -> Options.Doc -> Options.Doc
-        shortOpt o v = flag o <> " " <> metavar v
+        shortFlag :: Char -> Options.Doc
+        shortFlag c = flagDoc (Options.string ['-', c])
+
+        opt :: String -> String -> Options.Doc
+        opt o v = flag o <> "=" <> metavar (Options.string v)
+
+        shortOpt :: Char -> String -> Options.Doc
+        shortOpt o v = shortFlag o <> " " <> metavar (Options.string v)
 
         paragraph :: String -> Options.Doc
-        paragraph = Options.fillSep . fmap fromString . String.words
+        paragraph = Options.fillSep . fmap Options.string . String.words
 
         metavar :: Options.Doc -> Options.Doc
         metavar = colour Options.dullgreen Options.underline
@@ -786,34 +890,44 @@ parse Params{decoder = decoder@Dhall.Decoder{expected}, ..} = do
         value :: Options.Doc -> Options.Doc
         value = colour Options.magenta Options.underline
 
+        alt :: [Options.Doc] -> Options.Doc
+        alt = \case
+            [] -> ""
+            (d : ds) -> d <> mconcat (List.zipWith (<>) (List.repeat "|") ds)
+
+        ellipsis :: Options.Doc
+        ellipsis = Options.brackets "..."
+
+    in  PrettyUtils{..}
+
 data Shell = Bash | Fish | Zsh
 
-completer :: Configuration -> Shell -> Maybe Word -> [Text] -> IO ()
-completer config@Configuration{sources, prefixes} _shell index words
+completer :: Version -> Configuration -> Shell -> Maybe Word -> [Text] -> IO ()
+completer version config _shell index words
   | previousOneOf ["--platform", "-p"] =
-        completePlatform "" current
+        completePlatform config "" current
 
   | previousOneOf ["--language", "-L"] =
-        completeLanguage "" current
+        completeLanguage config "" current
 
   | previousOneOf ["--source", "-s"] =
-        completeSource "" current
+        completeSource config "" current
 
   | previous == Just "--config" =
-        completeConfig "" current
+        completeConfig version config "" current
 
   | Just ('-', _) <- Text.uncons current = if
       | "--platform=" `Text.isPrefixOf` current ->
-            completePlatform "--platform=" current
+            completePlatform config "--platform=" current
 
       | "--language=" `Text.isPrefixOf` current ->
-            completeLanguage "--language=" current
+            completeLanguage config "--language=" current
 
       | "--source=" `Text.isPrefixOf` current ->
-            completeSource "--source=" current
+            completeSource config "--source=" current
 
       | "--config=" `Text.isPrefixOf` current ->
-            completeConfig "--config=" current
+            completeConfig version config "--config=" current
 
         -- Value of `current` is the first option on the command-line.
       | null before -> do
@@ -870,7 +984,7 @@ completer config@Configuration{sources, prefixes} _shell index words
       pure ()
 
   | otherwise =
-        completeArgument
+        completeArgument config
             ( List.filter (not . ("-" `Text.isPrefixOf`)) before
             <> [current]
             )
@@ -931,83 +1045,123 @@ completer config@Configuration{sources, prefixes} _shell index words
         , "--clear-cache"
         ]
 
-    prefixMatch :: Text -> [Text] -> [Text]
-    prefixMatch prefix options =
-        List.sort (List.filter (prefix `Text.isPrefixOf`) options)
+completeLanguage :: Configuration -> Text -> Text -> IO ()
+completeLanguage config = withPrefix \word -> do
+    cacheDir <- getCacheDirectory config
+    Index.getIndexFile cacheDir >>= \case
+        Nothing ->
+            pure []
+        Just indexFile ->
+            SQLite.withConnection indexFile \connection ->
+                List.sort <$> Index.getLocales connection word
 
-    completeLanguage :: Text -> Text -> IO ()
-    completeLanguage = withPrefix \word -> do
-        cacheDir <- getCacheDirectory config
-        Index.getIndexFile cacheDir >>= \case
-            Nothing ->
-                pure []
-            Just indexFile ->
-                SQLite.withConnection indexFile \connection ->
-                    List.sort <$> Index.getLocales connection word
+completePlatform :: Configuration -> Text -> Text -> IO ()
+completePlatform config = withPrefix \word -> do
+    let extra = prefixMatch word ["all"]
+    cacheDir <- getCacheDirectory config
+    list <- Index.getIndexFile cacheDir >>= \case
+        Nothing ->
+            pure []
+        Just indexFile ->
+            SQLite.withConnection indexFile \connection ->
+                Index.getPlatforms connection word
+    pure (List.sort (extra <> list))
 
-    completePlatform :: Text -> Text -> IO ()
-    completePlatform = withPrefix \word -> do
-        let extra = prefixMatch word ["all"]
-        cacheDir <- getCacheDirectory config
-        list <- Index.getIndexFile cacheDir >>= \case
-            Nothing ->
-                pure []
-            Just indexFile ->
-                SQLite.withConnection indexFile \connection ->
-                    Index.getPlatforms connection word
-        pure (List.sort (extra <> list))
+completeSource :: Configuration -> Text -> Text -> IO ()
+completeSource Configuration{sources} = withPrefixPure \word ->
+    prefixMatch word $ NonEmpty.toList sources <&> \Source{name} ->
+        name
 
-    completeSource :: Text -> Text -> IO ()
-    completeSource = withPrefixPure \word ->
-        prefixMatch word $ NonEmpty.toList sources <&> \Source{name} ->
-            name
+completeConfig :: Version -> Configuration -> Text -> Text -> IO ()
+completeConfig version _config = withPrefix \word -> do
+    let env :: Text
+        env = "env:"
 
-    -- TODO: We should support file completion when it starts with one of the
-    -- following characters: '~', '.', '/'. We also have to preserve '~'
-    -- character.
-    completeConfig :: Text -> Text -> IO ()
-    completeConfig = withPrefix \_ -> pure []
+        https :: Text
+        https = "https://"
 
-    completeArgument :: [Text] -> IO ()
-    completeArgument cmds = do
-        cacheDir <- getCacheDirectory config
-        possiblyIndexFile <- Index.getIndexFile cacheDir
-        for_ possiblyIndexFile \indexFile -> do
-            list <- SQLite.withConnection indexFile \connection -> do
-                let cmdPrefixLength =
-                        -- ["cmd"] → length "" → 0
-                        -- ["foo","bar","cmd"] → length "foo-bar-" → 8
-                        maybe 0 (\cs -> sum (Text.length <$> cs) + length cs)
-                            (initMay cmds)
+        remoteImport :: [Text]
+        remoteImport = ["http://", https]
 
-                    cmd = Text.intercalate "-" cmds
+        libs :: [Text]
+        libs =
+            let base = "https://raw.githubusercontent.com/trskop/tldr-client/"
+                    <> fromString (showVersion version)
+                    <> "/dhall"
+            in  [base <> "/config.dhall"]
 
-                if null prefixes
-                    then
-                        fmap (Text.drop cmdPrefixLength)
-                            <$> Index.getCommands connection cmd
-                    else
-                        concat <$> for prefixes \prefix -> do
-                            let cmd' = prefix <> "-" <> cmd
+        paths, incompletePaths :: [Text]
+        paths = List.sort ["./", "../", "~/"]
+        incompletePaths = [".", "..", "~"]
 
-                                -- "${prefix}-" → length prefix + 1
-                                prefixLength = Text.length prefix + 1
+    if
+      | env `Text.isPrefixOf` word -> do
+            completions <- getEnvironment <&> fmap \(name, _value) ->
+                env <> fromString name
 
-                                cmdPrefixLength' =
-                                    prefixLength + cmdPrefixLength
+            pure (prefixMatch word completions)
 
-                            fmap (Text.drop cmdPrefixLength')
-                                <$> Index.getCommands connection cmd'
+      | https `Text.isPrefixOf` word ->
+            pure (prefixMatch word libs)
 
-            for_ (List.sort list)
-                Text.putStrLn
+      | word `List.elem` incompletePaths ->
+            pure (prefixMatch word paths)
 
-    withPrefixPure :: (Text -> [Text]) -> Text -> Text -> IO ()
-    withPrefixPure f = withPrefix (pure . f)
+      | any (`Text.isPrefixOf` word) paths -> do
+            let completions = [] -- TODO
 
-    withPrefix :: (Text -> IO [Text]) -> Text -> Text -> IO ()
-    withPrefix f prefix word = do
-        completions <- f (Text.drop (Text.length prefix) word)
-        for_ completions \completion -> do
-            Text.putStr prefix
-            Text.putStrLn completion
+            pure (prefixMatch word completions)
+
+      | otherwise ->
+            pure (prefixMatch word (env : paths <> remoteImport))
+
+completeArgument :: Configuration -> [Text] -> IO ()
+completeArgument config@Configuration{prefixes} cmds = do
+    cacheDir <- getCacheDirectory config
+    possiblyIndexFile <- Index.getIndexFile cacheDir
+    for_ possiblyIndexFile \indexFile -> do
+        list <- SQLite.withConnection indexFile \connection -> do
+            let cmdPrefixLength =
+                    -- ["cmd"] → length "" → 0
+                    -- ["foo","bar","cmd"] → length "foo-bar-" → 8
+                    maybe 0 (\cs -> sum (Text.length <$> cs) + length cs)
+                        (initMay cmds)
+
+                cmd = Text.intercalate "-" cmds
+
+            if null prefixes
+                then
+                    fmap (Text.drop cmdPrefixLength)
+                        <$> Index.getCommands connection cmd
+                else
+                    concat <$> for prefixes \prefix -> do
+                        let cmd' :: Text
+                            cmd' = prefix <> "-" <> cmd
+
+                            -- "${prefix}-" → length prefix + 1
+                            prefixLength :: Int
+                            prefixLength = Text.length prefix + 1
+
+                        fmap (Text.drop (prefixLength + cmdPrefixLength))
+                            <$> Index.getCommands connection cmd'
+
+        for_ (List.sort list) \completion ->
+            printCompletion "" completion
+
+prefixMatch :: Text -> [Text] -> [Text]
+prefixMatch prefix options =
+    List.sort (List.filter (prefix `Text.isPrefixOf`) options)
+
+withPrefixPure :: (Text -> [Text]) -> Text -> Text -> IO ()
+withPrefixPure f = withPrefix (pure . f)
+
+withPrefix :: (Text -> IO [Text]) -> Text -> Text -> IO ()
+withPrefix f prefix word = do
+    completions <- f (Text.drop (Text.length prefix) word)
+    for_ completions \completion ->
+        printCompletion prefix completion
+
+printCompletion :: Text -> Text -> IO ()
+printCompletion prefix completion = do
+    Text.putStr prefix
+    Text.putStrLn completion

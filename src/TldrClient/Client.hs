@@ -18,7 +18,7 @@ module TldrClient.Client
     )
   where
 
-import Control.Applicative ((*>), pure)
+import Control.Applicative (pure)
 import Control.Exception
     ( Exception(displayException)
     , SomeException
@@ -38,7 +38,7 @@ import qualified Data.List as List (elem, filter, intercalate, notElem)
 import Data.List.NonEmpty (NonEmpty((:|)), nonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty (head, toList)
 import Data.Maybe (Maybe(Just, Nothing), fromMaybe, listToMaybe)
-import Data.Ord ((>), (>=))
+import Data.Ord ((>))
 import Data.Semigroup ((<>))
 import Data.String (String, fromString, unlines)
 import Data.Traversable (for)
@@ -48,7 +48,6 @@ import System.IO
     , IO
     , hClose
     , hFlush
-    , hPrint
     , hPutStr
     , hPutStrLn
     , stderr
@@ -68,7 +67,7 @@ import qualified Data.CaseInsensitive as CI (mk)
 --import qualified Data.Output.Colour as ColourOutput (ColourOutput(Auto))
 import Data.Text (Text)
 import qualified Data.Text as Text (intercalate, unpack)
-import qualified Data.Verbosity as Verbosity (Verbosity(Annoying, Silent))
+import qualified Data.Verbosity as Verbosity (Verbosity(Silent))
 import qualified Database.SQLite.Simple as SQLite (withConnection)
 import Network.Wreq (get, responseBody)
 import System.Directory
@@ -89,6 +88,9 @@ import TldrClient.Configuration
     , SourceFormat(TldrPagesWithIndex, TldrPagesWithoutIndex)
     , getCacheDirectory
     , getLocales
+    , putDebugLn
+    , putErrorLn
+    , putWarningLn
     )
 import qualified TldrClient.Index as Index
     ( Entry(..)
@@ -146,14 +148,11 @@ parsePlatform s = case CI.mk s of
 
 client :: Configuration -> Action -> IO ()
 client config@Configuration{sources, verbosity, prefixes} action = do
-    when (verbosity >= Verbosity.Annoying) do
-        -- TODO: Find a nicer way to print these:
-        hPutStr stderr "DEBUG: " *> hPrint stderr config
-        hPutStr stderr "DEBUG: " *> hPrint stderr action
+    putDebugLn config stderr (show config)
+    putDebugLn config stderr (show action)
 
     cacheDirectory <- getCacheDirectory config
-    when (verbosity >= Verbosity.Annoying) do
-        hPutStrLn stderr ("DEBUG: Cache directory: " <> cacheDirectory)
+    putDebugLn config stderr ("Cache directory: " <> cacheDirectory)
 
     createDirectoryIfMissing True cacheDirectory
     indexFile <- Index.newUnlessExists cacheDirectory
@@ -174,8 +173,7 @@ client config@Configuration{sources, verbosity, prefixes} action = do
                                 , locales = Just (localeToText <$> locales)
                                 , platforms = getPlatforms platformOverride
                                 }
-                        when (verbosity >= Verbosity.Annoying) do
-                            hPutStrLn stderr ("DEBUG: Query: " <> show query)
+                        putDebugLn config stderr ("Query: " <> show query)
                         Index.lookup connection query
 
                 if null prefixes
@@ -185,10 +183,9 @@ client config@Configuration{sources, verbosity, prefixes} action = do
                         concat <$> for prefixes \prefix ->
                             doLookup (prefix <> "-")
 
-            when (verbosity >= Verbosity.Annoying) do
-                hPutStrLn stderr "DEBUG: Entries that were found:"
-                for_ entries \entry ->
-                    hPutStrLn stderr ("  " <> show entry)
+            putDebugLn config stderr "Entries that were found:"
+            for_ entries \entry ->
+                putDebugLn config stderr ("  " <> show entry)
 
             case listToMaybe entries of
                 Nothing -> do
@@ -212,8 +209,7 @@ client config@Configuration{sources, verbosity, prefixes} action = do
                                 , platforms = getPlatforms platformOverride
                                 , prefix
                                 }
-                        when (verbosity >= Verbosity.Annoying) do
-                            hPutStrLn stderr ("DEBUG: Query: " <> show query)
+                        putDebugLn config stderr ("Query: " <> show query)
                         Index.list connection query
 
                 if null prefixes
@@ -260,7 +256,7 @@ client config@Configuration{sources, verbosity, prefixes} action = do
                     -- revisited.
                     && length sourcesToFetch /= length sourcesOverride
 
-            when (haveSpecifiedUnknownSource && verbosity > Verbosity.Silent) do
+            when haveSpecifiedUnknownSource do
                 let sourceNames :: [Text]
                     sourceNames = sourcesToFetch <&> \Source{name} -> name
 
@@ -270,25 +266,23 @@ client config@Configuration{sources, verbosity, prefixes} action = do
                         $ List.filter (`List.notElem` sourceNames)
                             sourcesOverride
 
-                hPutStrLn stderr
-                    ( "WARNING: Unknown page sources specified on command\
-                    \ line: " <> unknownSources
+                putWarningLn config stderr
+                    ( "Unknown page sources specified on command line: "
+                    <> unknownSources
                     )
 
             -- Since configuration contains non-empty list this can happen only
             -- if only unknown sources were specified on the command line.
             when (null sourcesToFetch) do
-                when (verbosity > Verbosity.Silent) do
-                    let sourceNames :: String
-                        sourceNames =
-                            Text.unpack . Text.intercalate ", "
-                            $ NonEmpty.toList sources <&> \Source{name} -> name
+                let sourceNames :: String
+                    sourceNames =
+                        Text.unpack . Text.intercalate ", "
+                        $ NonEmpty.toList sources <&> \Source{name} -> name
 
-                    hPutStrLn stderr
-                        ( "ERROR: No known (configured) page source was\
-                        \ specified on the command line. Configured sources\
-                        \ are: " <> sourceNames
-                        )
+                putErrorLn config stderr
+                    ( "No known (configured) page source was specified on the\
+                    \ command line. Configured sources are: " <> sourceNames
+                    )
 
                 exitFailure
 
@@ -317,8 +311,7 @@ client config@Configuration{sources, verbosity, prefixes} action = do
                     , locales = Just (localeToText <$> locales)
                     , platforms = getPlatforms platformOverride
                     }
-            when (verbosity >= Verbosity.Annoying) do
-                hPutStrLn stderr ("DEBUG: Query: " <> show query)
+            putDebugLn config stderr ("Query: " <> show query)
             SQLite.withConnection indexFile \connection ->
                 Index.prune connection query
 
@@ -362,17 +355,14 @@ updateCache
 
 updateCache
   UpdateCacheParams
-    { config = Configuration{verbosity}
+    { config = config@Configuration{verbosity}
     , cacheDirectory
     , indexFile
     , source = Source{name, format, location = Remote urls}
     } =
   do
-    when (verbosity >= Verbosity.Annoying) do
-        hPutStrLn stderr
-            ( "DEBUG: Target directory for '" <> sourceName <> "': "
-            <> targetDir
-            )
+    putDebugLn config stderr
+        ("Target directory for '" <> sourceName <> "': " <> targetDir)
 
     withTempDirectory cacheDirectory sourceName \dir -> do
         when (verbosity > Verbosity.Silent) do
@@ -387,11 +377,10 @@ updateCache
             Left e -> do
                 when (verbosity > Verbosity.Silent) do
                     hPutStrLn stdout "failed"
-                when (verbosity >= Verbosity.Annoying) do
-                    hPutStrLn stderr
-                        ( "ERROR: Download of " <> url <> " failed with: "
-                        <> displayException @SomeException e
-                        )
+                putErrorLn config stderr
+                    ( "Download of " <> url <> " failed with: "
+                    <> displayException @SomeException e
+                    )
 
             Right (view responseBody -> body) -> do
                 when (verbosity > Verbosity.Silent) do
@@ -434,12 +423,10 @@ updateCache
             Left e -> do
                 when (verbosity > Verbosity.Silent) do
                     hPutStrLn stdout "failed"
-                when (verbosity >= Verbosity.Annoying) do
-                    hPutStrLn stderr
-                        ( "ERROR: Unpacking of " <> url
-                        <> " failed with: "
-                        <> displayException @SomeException e
-                        )
+                putErrorLn config stderr
+                    ( "Unpacking of " <> url <> " failed with: "
+                    <> displayException @SomeException e
+                    )
 
             Right _ -> do
                 when (verbosity > Verbosity.Silent) do
@@ -470,7 +457,7 @@ getPlatforms platformOverride =
             Just (fromString p :| ["common"])
 
 renderEntry :: Configuration -> FilePath -> Index.Entry -> IO ()
-renderEntry Configuration{verbosity} cacheDirectory Index.Entry{..} =
+renderEntry config cacheDirectory Index.Entry{..} =
     case filePath of
         Nothing ->
             renderContent
@@ -482,17 +469,12 @@ renderEntry Configuration{verbosity} cacheDirectory Index.Entry{..} =
             if fileExists
                 then renderFile path
                 else do
-                    when (verbosity >= Verbosity.Annoying) do
-                        hPutStrLn stderr
-                            ( "DEBUG: "
-                            <> path
-                            <> ": File not found, using cached content."
-                            )
+                    putDebugLn config stderr
+                        (path <> ": File not found, using cached content.")
                     renderContent
   where
     renderContent = do
-        when (verbosity >= Verbosity.Annoying) do
-            hPutStrLn stderr ("DEBUG: Page found in cache only.")
+        putDebugLn config stderr "Page found in cache only."
 
         let file = Text.unpack command <.> "md"
         withTempFile cacheDirectory file \path h -> do
@@ -501,8 +483,7 @@ renderEntry Configuration{verbosity} cacheDirectory Index.Entry{..} =
             Tldr.renderPage path stdout Tldr.UseColor
 
     renderFile path = do
-        when (verbosity >= Verbosity.Annoying) do
-            hPutStrLn stderr ("DEBUG: Page found: " <> path)
+        putDebugLn config stderr ("Page found: " <> path)
 
         Tldr.renderPage path stdout Tldr.UseColor
 

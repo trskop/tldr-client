@@ -58,7 +58,12 @@ import TldrClient.Configuration
     , decodeSubcommandConfiguration
     , mkDefConfiguration
     )
-import qualified TldrClient.Options as Options (Params(..), completer, parse)
+import qualified TldrClient.Options as Options
+    ( Params(..)
+    , ProgramName(CommandWrapperSubcommand)
+    , completer
+    , parse
+    )
 
 import Paths_tldr_client (version)
 
@@ -66,15 +71,16 @@ import Paths_tldr_client (version)
 main :: IO ()
 main = do
     env@Environment{..} <- parseEnvironment
-    when (verbosity >= Verbosity.Annoying) do
-        hPutStrLn stderr ("DEBUG: " <> show env)
     let toolset = Text.unpack toolsetName
         subcommand = Text.unpack subcommandName
+    when (verbosity >= Verbosity.Annoying) do
+        hPutStrLn stderr
+            (toolset <> " " <> subcommand <> ": Debug: " <> show env)
     (config, action) <- Options.parse Options.Params
         { version
         , colourOutput
         , verbosity
-        , programName = toolset <> " " <> subcommand
+        , programName = Options.CommandWrapperSubcommand toolset subcommand
         , configFile
         , configurationExpression
         , decoder = decodeSubcommandConfiguration verbosity colourOutput
@@ -84,7 +90,8 @@ main = do
             , location =
                 Local (dataDirectory </> "tldr" </> "pages" </> toolset)
             }
-        , runCompletion = Options.completer . updatePrefixes toolsetName
+        , runCompletion =
+            Options.completer version . updatePrefixes toolsetName
         }
     client (updatePrefixes toolsetName config) action
 
