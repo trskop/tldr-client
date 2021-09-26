@@ -1,6 +1,6 @@
 % TLDR-CLIENT(1) TLDR Pages Client | TLDR Pages Client
 % Peter Trsko
-% 31 August 2021
+% 26 September 2021
 
 # NAME
 
@@ -147,9 +147,10 @@ See *EXAMPLES* section, below, to see few basic usage examples.
     all the ways how configuration can be passed to the application.
 
 \--language=*LANGUAGE*, -l *LANGUAGE*
-:   Search/list pages written in *LANGUAGE*. Overrides default language
-    detection mechanism, see *ENVIRONMENT VARIABLES* section for details on how
-    language is detected.
+:   Search/list pages written in *LANGUAGE*; this option can be used multiple
+    times to specify multiple *LANGUAGE*s. Overrides default language detection
+    mechanism, see *ENVIRONMENT VARIABLES* section for details on how language
+    is detected.
 
     The *LANGUAGE* value can be for example `en` or `zh_TW`. In general it is
     in the following format:
@@ -174,7 +175,8 @@ See *EXAMPLES* section, below, to see few basic usage examples.
     which is considered to be "the default language".
 
 \--platform=*PLATFORM*, -p *PLATFORM*
-:   Search or list pages for specified *PLATFORM*. If not option is omitted
+:   Search or list pages for specified *PLATFORM*; this option can be used
+    multiple times to specify multiple *PLATFORM*s. If not option is omitted
     then the platform the application is running on is used as a default.
 
     List of recognised *PLATFORM*s is flexible. What it means is that if a
@@ -207,7 +209,8 @@ See *EXAMPLES* section, below, to see few basic usage examples.
     *CONFIGURATION* section.
 
 \--config-print-type
-:   Print Dhall type of configuration accepted by the application.
+:   Print Dhall type of configuration accepted by the application to standard
+    output and terminate with exit code 0.
 
     Configuration is a Dhall *EXPR*ession passed via `--config=`*EXPR*, or
     `TLDR_CONFIG=`*EXPR* environment variable (see *ENVIRONMENT VARIABLES*

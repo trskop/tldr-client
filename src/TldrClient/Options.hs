@@ -170,10 +170,10 @@ data Mode
     | PrintVersion
     -- ^ Print version information and exit instead of doing anything.
     -- Configuration will not be parsed or used in any way.
-    | CompletionInfo
+    | PrintCompletionInfo
     -- ^ Describe how command-line completion works in the form of a Dhall
     -- expression.
-    | Completion (Maybe Text) Shell (Maybe Word) [Text]
+    | Complete (Maybe Text) Shell (Maybe Word) [Text]
     -- ^ Do command-line completion.
 
 data ProgramName
@@ -293,7 +293,7 @@ parse Params{..} = do
                 }
             exitSuccess
 
-        CompletionInfo -> do
+        PrintCompletionInfo -> do
             Text.putStrLn $ Text.unlines
                 [ "let toWordOptions ="
                 , "      λ(words : List Text) →"
@@ -317,7 +317,7 @@ parse Params{..} = do
                 ]
             exitSuccess
 
-        Completion possiblyConfig shell index words -> do
+        Complete possiblyConfig shell index words -> do
             config <- parseConfig possiblyConfig
             runCompletion config shell index words
             exitSuccess
@@ -621,7 +621,7 @@ parse Params{..} = do
 
     completionInfoFlag
         :: Options.Parser Mode
-    completionInfoFlag = Options.flag' CompletionInfo
+    completionInfoFlag = Options.flag' PrintCompletionInfo
         ( Options.long "completion-info"
         <> Options.internal
         )
@@ -634,7 +634,7 @@ parse Params{..} = do
         )
       where
         completionMode shell index words config =
-            Completion config shell index words
+            Complete config shell index words
 
     indexOption :: Options.Parser Word
     indexOption = Options.option Options.auto
@@ -669,6 +669,23 @@ parse Params{..} = do
         <> Options.internal
         )
 
+    -- Format:
+    --
+    -- > Options:
+    -- >
+    -- > ⎵⎵ARGUMENT
+    -- > ⎵⎵⎵⎵⎵⎵Description
+    -- >
+    -- > ⎵⎵--long-option, -s
+    -- > ⎵⎵⎵⎵⎵⎵Use long option first as it is much more descriptive than short
+    -- > ⎵⎵⎵⎵⎵⎵one so that when user is skimming the help message they can find
+    -- > ⎵⎵⎵⎵⎵⎵things faster, sometimes even by skipping reading the
+    -- > ⎵⎵⎵⎵⎵⎵description.
+    -- >
+    -- > ⎵⎵--another-long-option=ARG, -a ARG
+    -- > ⎵⎵⎵⎵⎵⎵...
+    -- >
+    -- > ...
     optionsDoc :: PrettyUtils -> Options.Doc
     optionsDoc prettyUtils = Options.nest 2 $ Options.vsep
         (   [ "Options:"
@@ -695,7 +712,10 @@ parse Params{..} = do
                 [ list [opt "platform" "PLATFORM", shortOpt 'p' "PLATFORM"]
                 , Options.fillSep
                     [ paragraph "Search or list pages for specified"
-                    , metavar "PLATFORM" <> "."
+                    , metavar "PLATFORM" <> ";"
+                    , paragraph "this option can be used multiple times to\
+                        \ specify multiple"
+                    , metavar "PLATFORM" <> "s."
                     , paragraph "If not option is omitted then the platform\
                         \ the application is running on is used as a default."
                     ]
@@ -705,7 +725,10 @@ parse Params{..} = do
                 [ list [opt "language" "LANGUAGE", shortOpt 'L' "LANGUAGE"]
                 , Options.fillSep
                     [ paragraph "Search/list pages written in"
-                    , metavar "LANGUAGE" <> "."
+                    , metavar "LANGUAGE" <> ";"
+                    , paragraph "this option can be used multiple times to\
+                        \ specify multiple"
+                    , metavar "LANGUAGE" <> "s."
                     , paragraph "Overrides default language detection\
                         \ mechanism."
                     ]
@@ -787,7 +810,9 @@ parse Params{..} = do
                 [ flag "config-print-type"
                 , Options.fillSep
                     [ paragraph "Print Dhall type of configuration accepted by\
-                        \ the application."
+                        \ the application to standard output and terminate\
+                        \ with exit code"
+                    , value "0" <> "."
                     ]
                 ]
             , ""
@@ -905,34 +930,58 @@ data Shell = Bash | Fish | Zsh
 completer :: Version -> Configuration -> Shell -> Maybe Word -> [Text] -> IO ()
 completer version config _shell index words
   | previousOneOf ["--platform", "-p"] =
-        completePlatform config "" current
+        completePlatform config CompletionQuery
+            { prefix = ""
+            , word = current
+            }
 
   | previousOneOf ["--language", "-L"] =
-        completeLanguage config "" current
+        completeLanguage config CompletionQuery
+            { prefix = ""
+            , word = current
+            }
 
   | previousOneOf ["--source", "-s"] =
-        completeSource config "" current
+        completeSource config CompletionQuery
+            { prefix = ""
+            , word = current
+            }
 
   | previous == Just "--config" =
-        completeConfig version config "" current
+        completeConfig version config CompletionQuery
+            { prefix = ""
+            , word = current
+            }
 
   | Just ('-', _) <- Text.uncons current = if
       | "--platform=" `Text.isPrefixOf` current ->
-            completePlatform config "--platform=" current
+            completePlatform config CompletionQuery
+                { prefix = "--platform="
+                , word = current
+                }
 
       | "--language=" `Text.isPrefixOf` current ->
-            completeLanguage config "--language=" current
+            completeLanguage config CompletionQuery
+                { prefix = "--language="
+                , word = current
+                }
 
       | "--source=" `Text.isPrefixOf` current ->
-            completeSource config "--source=" current
+            completeSource config CompletionQuery
+                { prefix = "--source="
+                , word = current
+                }
 
       | "--config=" `Text.isPrefixOf` current ->
-            completeConfig version config "--config=" current
+            completeConfig version config CompletionQuery
+                { prefix = "--config="
+                , word = current
+                }
 
         -- Value of `current` is the first option on the command-line.
-      | null before -> do
-            for_ (prefixMatch current topLevelOptions)
-                Text.putStrLn
+      | null before ->
+            for_ (prefixMatch current topLevelOptions) \completion ->
+                printCompletion Completion{prefix = "", completion}
 
         -- These options mean that nothing else should be completed.
       | hadBeforeOneOf topLevelTerminalOptions ->
@@ -943,8 +992,9 @@ completer version config _shell index words
                 possibilities = do
                     let opt = "--config="
                     opt <$ guard (not (hadBefore opt))
-            for_ (prefixMatch current possibilities)
-                Text.putStrLn
+
+            for_ (prefixMatch current possibilities) \completion ->
+                printCompletion Completion{prefix = "", completion}
 
       | hadBeforeOneOf ["--update", "-u"] -> do
             let possibilities :: [Text]
@@ -955,8 +1005,9 @@ completer version config _shell index words
                         guard (not (hadBefore "--config"))
                         pure "--config="
                     ]
-            for_ (prefixMatch current possibilities)
-                Text.putStrLn
+
+            for_ (prefixMatch current possibilities) \completion ->
+                printCompletion Completion{prefix = "", completion}
 
         -- "--list", "-l", "--clear-cache", or default mode:
       | otherwise -> do
@@ -976,8 +1027,9 @@ completer version config _shell index words
                         guard (not (hadBeforeOneOf ["--platform", "-p"]))
                         ["--platform=", "-p"]
                     ]
-            for_ (prefixMatch current possibilities)
-                Text.putStrLn
+
+            for_ (prefixMatch current possibilities) \completion ->
+                printCompletion Completion{prefix = "", completion}
 
   | hadBeforeOneOf notDefaultModeOptions =
       -- There are not arguments, only options in these modes.
@@ -1045,7 +1097,12 @@ completer version config _shell index words
         , "--clear-cache"
         ]
 
-completeLanguage :: Configuration -> Text -> Text -> IO ()
+data CompletionQuery = CompletionQuery
+    { prefix :: Text
+    , word :: Text
+    }
+
+completeLanguage :: Configuration -> CompletionQuery -> IO ()
 completeLanguage config = withPrefix \word -> do
     cacheDir <- getCacheDirectory config
     Index.getIndexFile cacheDir >>= \case
@@ -1055,7 +1112,7 @@ completeLanguage config = withPrefix \word -> do
             SQLite.withConnection indexFile \connection ->
                 List.sort <$> Index.getLocales connection word
 
-completePlatform :: Configuration -> Text -> Text -> IO ()
+completePlatform :: Configuration -> CompletionQuery -> IO ()
 completePlatform config = withPrefix \word -> do
     let extra = prefixMatch word ["all"]
     cacheDir <- getCacheDirectory config
@@ -1067,12 +1124,12 @@ completePlatform config = withPrefix \word -> do
                 Index.getPlatforms connection word
     pure (List.sort (extra <> list))
 
-completeSource :: Configuration -> Text -> Text -> IO ()
+completeSource :: Configuration -> CompletionQuery -> IO ()
 completeSource Configuration{sources} = withPrefixPure \word ->
     prefixMatch word $ NonEmpty.toList sources <&> \Source{name} ->
         name
 
-completeConfig :: Version -> Configuration -> Text -> Text -> IO ()
+completeConfig :: Version -> Configuration -> CompletionQuery -> IO ()
 completeConfig version _config = withPrefix \word -> do
     let env :: Text
         env = "env:"
@@ -1146,22 +1203,27 @@ completeArgument config@Configuration{prefixes} cmds = do
                             <$> Index.getCommands connection cmd'
 
         for_ (List.sort list) \completion ->
-            printCompletion "" completion
+            printCompletion Completion{prefix = "", completion}
 
 prefixMatch :: Text -> [Text] -> [Text]
 prefixMatch prefix options =
     List.sort (List.filter (prefix `Text.isPrefixOf`) options)
 
-withPrefixPure :: (Text -> [Text]) -> Text -> Text -> IO ()
+withPrefixPure :: (Text -> [Text]) -> CompletionQuery -> IO ()
 withPrefixPure f = withPrefix (pure . f)
 
-withPrefix :: (Text -> IO [Text]) -> Text -> Text -> IO ()
-withPrefix f prefix word = do
+withPrefix :: (Text -> IO [Text]) -> CompletionQuery -> IO ()
+withPrefix f CompletionQuery{..} = do
     completions <- f (Text.drop (Text.length prefix) word)
     for_ completions \completion ->
-        printCompletion prefix completion
+        printCompletion Completion{prefix, completion}
 
-printCompletion :: Text -> Text -> IO ()
-printCompletion prefix completion = do
+data Completion = Completion
+    { prefix :: Text
+    , completion :: Text
+    }
+
+printCompletion :: Completion -> IO ()
+printCompletion Completion{..} = do
     Text.putStr prefix
     Text.putStrLn completion
