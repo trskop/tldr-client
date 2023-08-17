@@ -3,7 +3,12 @@ For latest version of this document see [`ChangeLog.md on GitHub`
 
 ### HEAD (unreleased changes)
 
-TODO
+* Build against newer dependencies:
+
+  - LTS 18.6 → 20.26
+  - GHC 8.10.4 → 9.2.8 (covered by LTS 20.26)
+  - dhall 1.40.1 → 1.41.2 (covered by LTS 20.26)
+  - tldr 0.9.1 → 0.9.2
 
 
 ### 0.2.0.0

@@ -1,7 +1,7 @@
 -- |
 -- Module:      Main
 -- Description: Client for tldr-pages
--- Copyright:   (c) 2021 Peter Trško
+-- Copyright:   (c) 2021-2023 Peter Trško
 -- License:     BSD3
 --
 -- Maintainer:  peter.trsko@gmail.com
@@ -19,32 +19,32 @@ import Prelude (maxBound, minBound)
 import Control.Applicative (pure)
 import Control.Monad (guard, when)
 import Data.Bool (not)
-import qualified Data.Char as Char (toLower)
+import Data.Char qualified as Char (toLower)
 import Data.Foldable (elem)
 import Data.Function (($), (.))
 import Data.Functor ((<$), (<$>))
-import qualified Data.List as List (intercalate)
+import Data.List qualified as List (intercalate)
 import Data.Maybe (Maybe(Just), maybe)
 import Data.Ord ((>=))
 import Data.Semigroup ((<>))
 import Data.String (String)
-import qualified Data.String as String (unwords)
+import Data.String qualified as String (unwords)
 import System.Exit (ExitCode(ExitFailure), exitWith)
 import System.IO (FilePath, IO, hPutStrLn, stderr)
 import Text.Show (Show, show)
 
 import Control.Monad.Except (throwError)
-import qualified Data.CaseInsensitive as CI (mk)
+import Data.CaseInsensitive qualified as CI (mk)
 import Data.Output.Colour (ColourOutput)
-import qualified Data.Output.Colour as ColourOutput
+import Data.Output.Colour qualified as ColourOutput
     ( ColourOutput(Always, Auto, Never)
     , parse
     , toString
     )
 import Data.Text (Text)
-import qualified Data.Text as Text (null, unpack)
+import Data.Text qualified as Text (null, unpack)
 import Data.Verbosity (Verbosity)
-import qualified Data.Verbosity as Verbosity (Verbosity(Annoying), parse)
+import Data.Verbosity qualified as Verbosity (Verbosity(Annoying), parse)
 import System.Directory (XdgDirectory(XdgConfig, XdgData), getXdgDirectory)
 import System.Environment.Parser (ParseEnv, ParseEnvError(..), parseEnvIO, var)
 import System.FilePath ((<.>), (</>))
@@ -58,7 +58,7 @@ import TldrClient.Configuration
     , decodeSubcommandConfiguration
     , mkDefConfiguration
     )
-import qualified TldrClient.Options as Options
+import TldrClient.Options qualified as Options
     ( Params(..)
     , ProgramName(CommandWrapperSubcommand)
     , completer
@@ -160,6 +160,10 @@ parseEnvironment = do
                 Text.unpack name <> ": " <> msg
             MissingEnvVarError name ->
                 Text.unpack name <> ": Required environment variable missing."
+            EmptyEnvVarError name ->
+                Text.unpack name <> ": Value can not be empty:\
+                    \ Environment variable is defined, but its value set to an\
+                    \ empty string."
             ErrorMessage msg ->
                 msg
             UnknownError ->

@@ -1,7 +1,7 @@
 -- |
 -- Module:      Main
 -- Description: Client for tldr-pages
--- Copyright:   (c) 2021 Peter Trško
+-- Copyright:   (c) 2021-2023 Peter Trško
 -- License:     BSD3
 --
 -- Maintainer:  peter.trsko@gmail.com
@@ -28,14 +28,14 @@ import System.IO (FilePath, IO, hPutStrLn, stderr)
 import Text.Show (Show, show)
 
 import Data.Output.Colour (ColourOutput)
-import qualified Data.Output.Colour as ColourOutput
+import Data.Output.Colour qualified as ColourOutput
     ( ColourOutput(Auto)
     , noColorEnvVar
     )
 import Data.Text (Text)
-import qualified Data.Text as Text (unpack)
+import Data.Text qualified as Text (unpack)
 import Data.Verbosity (Verbosity)
-import qualified Data.Verbosity as Verbosity (Verbosity(Annoying, Normal))
+import Data.Verbosity qualified as Verbosity (Verbosity(Annoying, Normal))
 import System.Directory (XdgDirectory(XdgConfig), getXdgDirectory)
 import System.Environment.Parser (ParseEnvError(..), optionalVar, parseEnvIO)
 
@@ -44,7 +44,7 @@ import TldrClient.Configuration
     ( decodeStandaloneConfiguration
     , mkDefConfiguration
     )
-import qualified TldrClient.Options as Options
+import TldrClient.Options qualified as Options
     ( Params(..)
     , ProgramName(StandaloneApplication)
     , completer
@@ -104,6 +104,10 @@ parseEnvironment = do
                 Text.unpack name <> ": " <> msg
             MissingEnvVarError name ->
                 Text.unpack name <> ": Required environment variable missing."
+            EmptyEnvVarError name ->
+                Text.unpack name <> ": Value can not be empty:\
+                    \ Environment variable is defined, but its value set to an\
+                    \ empty string."
             ErrorMessage msg ->
                 msg
             UnknownError ->

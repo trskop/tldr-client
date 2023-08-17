@@ -1,7 +1,7 @@
 -- |
 -- Module:      TldrClient.Configuration
 -- Description: Configuration data type and Dhall decoding for it
--- Copyright:   (c) 2021 Peter Trško
+-- Copyright:   (c) 2021-2023 Peter Trško
 -- License:     BSD3
 --
 -- Maintainer:  peter.trsko@gmail.com
@@ -35,7 +35,7 @@ import Data.Eq (Eq)
 import Data.Function ((.))
 import Data.Functor ((<$>))
 import Data.List.NonEmpty (NonEmpty((:|)))
-import qualified Data.List.NonEmpty as NonEmpty (toList)
+import Data.List.NonEmpty qualified as NonEmpty (toList)
 import Data.Maybe (Maybe(Nothing), fromMaybe, maybe)
 import Data.Ord ((>=))
 import Data.Semigroup ((<>))
@@ -58,11 +58,11 @@ import Data.Output.Colour
     , useColoursWhen
     )
 import Data.Text (Text)
-import qualified Data.Text as Text (unpack)
+import Data.Text qualified as Text (unpack)
 import Data.Verbosity (Verbosity)
-import qualified Data.Verbosity as Verbosity (Verbosity(Annoying, Normal))
+import Data.Verbosity qualified as Verbosity (Verbosity(Annoying, Normal))
 import Dhall (FromDhall)
-import qualified Dhall
+import Dhall qualified
     ( Decoder
     , auto
     , constructor

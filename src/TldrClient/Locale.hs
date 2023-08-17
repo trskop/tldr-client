@@ -1,7 +1,7 @@
 -- |
 -- Module:      TldrClient.Locale
 -- Description: Represents locale (language & region)
--- Copyright:   (c) 2021 Peter Trško
+-- Copyright:   (c) 2021-2023 Peter Trško
 -- License:     BSD3
 --
 -- Maintainer:  peter.trsko@gmail.com
@@ -44,14 +44,14 @@ import Text.Show (Show, show)
 
 import Control.Monad.Except (throwError)
 import Data.Aeson (FromJSON(..), ToJSON(..))
-import qualified Data.Aeson as Aeson
-import qualified Data.Aeson.Types as Aeson (Parser)
+import Data.Aeson qualified as Aeson
+import Data.Aeson.Types qualified as Aeson (Parser)
 import Data.CountryCodes (CountryCode(..))
-import qualified Data.CountryCodes as CountryCode
+import Data.CountryCodes qualified as CountryCode
 import Data.LanguageCodes (ISO639_1)
-import qualified Data.LanguageCodes as LanguageCode
+import Data.LanguageCodes qualified as LanguageCode
 import Data.Text (Text)
-import qualified Data.Text as Text
+import Data.Text qualified as Text
     ( break
     , cons
     , drop
@@ -61,16 +61,16 @@ import qualified Data.Text as Text
     , toUpper
     , uncons
     )
-import qualified Dhall
+import Dhall qualified
     ( Decoder(Decoder, expected, extract)
     , field
     , maybe
     , record
     , typeError
     )
-import qualified Dhall.Core as Dhall (Expr(Field, Union), fieldSelectionLabel)
-import qualified Dhall.Map as Dhall (Map)
-import qualified Dhall.Map (fromList, lookup)
+import Dhall.Core qualified as Dhall (Expr(Field, Union), fieldSelectionLabel)
+import Dhall.Map qualified as Dhall (Map)
+import Dhall.Map qualified (fromList, lookup)
 import System.Environment.Parser
     ( ParseEnv
     , ParseEnvError(ParseEnvError)

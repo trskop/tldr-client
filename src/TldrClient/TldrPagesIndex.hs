@@ -1,7 +1,7 @@
 -- |
 -- Module:      TldrClient.TldrPagesIndex
 -- Description: Structure and indexing of tldr-pages
--- Copyright:   (c) 2021 Peter Trško
+-- Copyright:   (c) 2021-2023 Peter Trško
 -- License:     BSD3
 --
 -- Maintainer:  peter.trsko@gmail.com
@@ -32,9 +32,9 @@ import Data.Eq (Eq, (==))
 import Data.Foldable (for_, null)
 import Data.Function ((.))
 import Data.Functor ((<$>))
-import qualified Data.List as List (drop, filter, isPrefixOf)
+import Data.List qualified as List (drop, filter, isPrefixOf)
 import Data.List.NonEmpty (NonEmpty)
-import qualified Data.List.NonEmpty as NonEmpty (toList)
+import Data.List.NonEmpty qualified as NonEmpty (toList)
 import Data.Maybe (Maybe(Just, Nothing))
 import Data.Semigroup ((<>))
 import Data.String (String, fromString)
@@ -44,18 +44,18 @@ import System.IO (FilePath, IO)
 import Text.Show (Show)
 
 import Data.Aeson (FromJSON(..), ToJSON(..))
-import qualified Data.Aeson as Aeson
-import qualified Data.Aeson.Types as Aeson (Parser)
-import qualified Data.Aeson.Encoding as Aeson (text)
-import qualified Data.ByteString as ByteString (readFile)
-import qualified Data.LanguageCodes as LanguageCode (ISO639_1(EN))
+import Data.Aeson qualified as Aeson
+import Data.Aeson.Types qualified as Aeson (Parser)
+import Data.Aeson.Encoding qualified as Aeson (text)
+import Data.ByteString qualified as ByteString (readFile)
+import Data.LanguageCodes qualified as LanguageCode (ISO639_1(EN))
 import Data.Text (Text)
-import qualified Data.Text as Text (null, unpack)
+import Data.Text qualified as Text (null, unpack)
 import System.Directory (listDirectory)
 import System.FilePath ((<.>), (</>), dropExtension, takeExtension)
 
 import TldrClient.Locale (Locale(..), localeToText)
-import qualified TldrClient.Index as Index (Entry(..))
+import TldrClient.Index qualified as Index (Entry(..))
 
 
 -- | Represents @index.json@ of @tldr-pages@.

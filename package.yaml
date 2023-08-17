@@ -13,12 +13,17 @@ license: BSD3
 license-file: LICENSE
 author: Peter Trško
 maintainer: peter.trsko@gmail.com
-copyright: (c) 2021 Peter Trško
+copyright: (c) 2021-2023 Peter Trško
 category: Command Line Tools, Tools
 
 flags:
   static:
     description: Build static executables
+    manual: true
+    default: false
+
+  pedantic:
+    description: Turn on additional warning flags
     manual: true
     default: false
 
@@ -39,6 +44,7 @@ default-extensions:
   - FlexibleContexts
   - FlexibleInstances
   - GeneralizedNewtypeDeriving
+  - ImportQualifiedPost # GHC >8.10
   - InstanceSigs
   - LambdaCase
   - MultiParamTypeClasses
@@ -65,11 +71,11 @@ dependencies:
 # All the dependencies that we use with version bounds. This keeps them all
 # consistent by the virtue of sharing.
 _dependencies:
-  - &aeson aeson >=1.5.2.0 && <2
+  - &aeson aeson >=2 && <3
   - &bytestring bytestring >=0.10 && <1
   - &case-insensitive case-insensitive >=1.2 && <2
   - &country-codes country-codes >=0.1.4 && <1
-  - &dhall dhall >=1.40.1 && <2
+  - &dhall dhall >=1.41.2 && <2
   - &directory directory >=1.3.5 && <2
   - &either either >=5.0.1.1 && <6
   - &filepath filepath >=1.4.2.1 && <2
@@ -115,6 +121,13 @@ ghc-options:
   - "-Wunused-packages" # GHC >8.10
   - "-Wunused-record-wildcards" # GHC >8.10
 
+when:
+  - condition: flag(pedantic)
+    ghc-options:
+      # Auto-generated files do not turn off this warning locally and it cannot
+      # be fixed easily.
+      - "-Wprepositive-qualified-module" # GHC >8.10
+
 library:
   source-dirs: src
 
@@ -124,7 +137,6 @@ library:
       - *case-insensitive
       - *country-codes
       - *dhall
-      - *directory
       - *directory
       - *either
       - *filepath

@@ -1,7 +1,7 @@
 -- |
 -- Module:      TldrClient.Client
 -- Description: Tldr pages client logic
--- Copyright:   (c) 2021 Peter Trško
+-- Copyright:   (c) 2021-2023 Peter Trško
 -- License:     BSD3
 --
 -- Maintainer:  peter.trsko@gmail.com
@@ -28,15 +28,15 @@ import Control.Exception
     )
 import Control.Monad (when)
 import Data.Bool (Bool(True), (&&), not)
-import qualified Data.Char as Char (toLower)
+import Data.Char qualified as Char (toLower)
 import Data.Either (Either(Left, Right))
 import Data.Eq (Eq, (/=))
 import Data.Foldable (concat, for_, length, null)
 import Data.Function (($), (.))
 import Data.Functor ((<$>), (<&>))
-import qualified Data.List as List (elem, filter, intercalate, notElem)
+import Data.List qualified as List (elem, filter, intercalate, notElem)
 import Data.List.NonEmpty (NonEmpty((:|)), nonEmpty)
-import qualified Data.List.NonEmpty as NonEmpty (head, toList)
+import Data.List.NonEmpty qualified as NonEmpty (head, toList)
 import Data.Maybe (Maybe(Just, Nothing), fromMaybe, listToMaybe)
 import Data.Ord ((>))
 import Data.Semigroup ((<>))
@@ -56,19 +56,19 @@ import System.IO
 import System.Info (os)
 import Text.Show (Show, show)
 
-import qualified Codec.Archive.Zip as Zip
+import Codec.Archive.Zip qualified as Zip
     ( ZipOption(OptDestination)
     , extractFilesFromArchive
     , toArchive
     )
 import Control.Lens (view)
-import qualified Data.ByteString as ByteString (hPutStr)
-import qualified Data.CaseInsensitive as CI (mk)
+import Data.ByteString qualified as ByteString (hPutStr)
+import Data.CaseInsensitive qualified as CI (mk)
 --import qualified Data.Output.Colour as ColourOutput (ColourOutput(Auto))
 import Data.Text (Text)
-import qualified Data.Text as Text (intercalate, unpack)
-import qualified Data.Verbosity as Verbosity (Verbosity(Silent))
-import qualified Database.SQLite.Simple as SQLite (withConnection)
+import Data.Text qualified as Text (intercalate, unpack)
+import Data.Verbosity qualified as Verbosity (Verbosity(Silent))
+import Database.SQLite.Simple qualified as SQLite (withConnection)
 import Network.Wreq (get, responseBody)
 import System.Directory
     ( createDirectoryIfMissing
@@ -78,8 +78,8 @@ import System.Directory
     )
 import System.FilePath ((<.>), (</>))
 import System.IO.Temp (withTempDirectory, withTempFile)
-import qualified Tldr (renderPage)
-import qualified Tldr.Types as Tldr (ColorSetting({-NoColor,-} UseColor))
+import Tldr qualified (renderPage)
+import Tldr.Types qualified as Tldr (ColorSetting({-NoColor,-} UseColor))
 
 import TldrClient.Configuration
     ( Configuration(Configuration, sources, verbosity, prefixes)
@@ -92,7 +92,7 @@ import TldrClient.Configuration
     , putErrorLn
     , putWarningLn
     )
-import qualified TldrClient.Index as Index
+import TldrClient.Index qualified as Index
     ( Entry(..)
     , ListQuery(..)
     , LookupQuery(..)
@@ -104,7 +104,7 @@ import qualified TldrClient.Index as Index
     , prune
     )
 import TldrClient.Locale (Locale(..), localeToText)
-import qualified TldrClient.TldrPagesIndex as TldrPagesIndex
+import TldrClient.TldrPagesIndex qualified as TldrPagesIndex
     ( indexAndLoad
     , load
     )

@@ -1,7 +1,7 @@
 -- |
 -- Module:      TldrClient.Options
 -- Description: Command-line options for a Tldr Client binary
--- Copyright:   (c) 2021 Peter Trško
+-- Copyright:   (c) 2021-2023 Peter Trško
 -- License:     BSD3
 --
 -- Maintainer:  peter.trsko@gmail.com
@@ -30,7 +30,7 @@ import Data.Foldable (any, concat, for_, length, null, sum)
 import Data.Function (($), (.))
 import Data.Functor (($>), (<$), (<$>), (<&>), fmap)
 import Data.Int (Int)
-import qualified Data.List as List
+import Data.List qualified as List
     ( concat
     , elem
     , filter
@@ -39,12 +39,12 @@ import qualified Data.List as List
     , take
     , zipWith
     )
-import qualified Data.List.NonEmpty as NonEmpty (toList)
+import Data.List.NonEmpty qualified as NonEmpty (toList)
 import Data.Maybe (Maybe(Just, Nothing), maybe)
 import Data.Monoid (mconcat)
 import Data.Semigroup ((<>))
 import Data.String (String, fromString)
-import qualified Data.String as String (words)
+import Data.String qualified as String (words)
 import Data.Traversable (for)
 import Data.Version (Version, makeVersion, showVersion)
 import Data.Word (Word)
@@ -66,12 +66,12 @@ import System.IO
     )
 
 import Data.CaseInsensitive (CI)
-import qualified Data.Either.Validation as Validation
+import Data.Either.Validation qualified as Validation
     ( Validation(Failure, Success)
     )
 import Data.Output.Colour (ColourOutput)
 import Data.Text (Text)
-import qualified Data.Text as Text
+import Data.Text qualified as Text
     ( drop
     , intercalate
     , isPrefixOf
@@ -79,10 +79,10 @@ import qualified Data.Text as Text
     , uncons
     , unlines
     )
-import qualified Data.Text.IO as Text (putStr, putStrLn)
+import Data.Text.IO qualified as Text (putStr, putStrLn)
 import Data.Verbosity (Verbosity)
-import qualified Dhall (Decoder(expected), input, inputFile)
-import qualified Options.Applicative as Options
+import Dhall qualified (Decoder(expected), input, inputFile)
+import Options.Applicative qualified as Options
     ( InfoMod
     , Parser
     , ParserHelp(ParserHelp, helpBody, helpFooter, helpUsage)
@@ -110,7 +110,7 @@ import qualified Options.Applicative as Options
     , strOption
     )
 import Options.Applicative.Help ((<+>))
-import qualified Options.Applicative.Help as Options
+import Options.Applicative.Help qualified as Options
     ( Doc
     , bold
     , braces
@@ -127,10 +127,10 @@ import qualified Options.Applicative.Help as Options
     , underline
     , vsep
     )
-import qualified Prettyprinter (pretty, line)
-import qualified Prettyprinter.Render.Terminal as Prettyprinter (putDoc)
+import Prettyprinter qualified (pretty, line)
+import Prettyprinter.Render.Terminal qualified as Prettyprinter (putDoc)
 import Safe (atDef, initMay, lastDef, lastMay)
-import qualified Database.SQLite.Simple as SQLite (withConnection)
+import Database.SQLite.Simple qualified as SQLite (withConnection)
 import System.Console.Terminal.Size as Terminal (Window(Window, width), hSize)
 import System.Directory (doesFileExist)
 
@@ -145,7 +145,7 @@ import TldrClient.Configuration
     , getCacheDirectory
     , shouldUseColours
     )
-import qualified TldrClient.Index as Index
+import TldrClient.Index qualified as Index
     ( getCommands
     , getIndexFile
     , getLocales

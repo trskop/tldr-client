@@ -1,7 +1,7 @@
 -- |
 -- Module:      TldrClient.Index
 -- Description: Local cache in the form of SQLite database
--- Copyright:   (c) 2021 Peter Trško
+-- Copyright:   (c) 2021-2023 Peter Trško
 -- License:     BSD3
 --
 -- Maintainer:  peter.trsko@gmail.com
@@ -52,9 +52,9 @@ import Text.Show (Show)
 
 import Data.ByteString (ByteString)
 import Data.Text (Text)
-import qualified Database.SQLite.Simple.FromRow as SQLite (RowParser)
-import qualified Database.SQLite.Simple.ToField as SQLite (toField)
-import qualified Database.SQLite.Simple as SQLite
+import Database.SQLite.Simple.FromRow qualified as SQLite (RowParser)
+import Database.SQLite.Simple.ToField qualified as SQLite (toField)
+import Database.SQLite.Simple qualified as SQLite
     ( Connection
     , FromRow(fromRow)
     , Only(Only)
