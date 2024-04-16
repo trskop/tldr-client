@@ -63,3 +63,8 @@ More complicated example that can be turned into a library can be found in
 
 - [x] [Command Wrapper](https://github.com/trskop/command-wrapper#readme)
   support.
+
+- [ ] Support source (see documentation of `--source=SOURCE` option)
+  preferences. When a page is provided by multiple sources it is a good idea
+  for certain sources to have precedence. For example, user will probably want
+  their custom pages to be preferred over standard tldr pages.

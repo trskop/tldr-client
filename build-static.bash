@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 #
+# Copyright (c) 2021-2024 Peter Trško
+#
 # Dependencies:
 #
 # - Nix — https://nixos.org/download.html
@@ -51,7 +53,7 @@ function getDockerImageViaNix() {
     # GHC version should correspond to LTS version in 'stack.yaml'.
     DEBUGGING_MODE="${debuggingMode}" nix-build --no-link \
         -A "${attribute}" \
-        "${root}/nix/ghc8104-musl-docker-image.nix"
+        "${root}/nix/ghc948-musl-docker-image.nix"
 }
 
 # Usage:
@@ -64,8 +66,7 @@ function main() {
     # image has changed.
     local loadDockerImageBashScript=
     loadDockerImageBashScript="$(
-        getDockerImageViaNix "${DEBUGGING_MODE:-0}" "${root}" \
-            loadDockerImageBashScript
+        getDockerImageViaNix "${DEBUGGING_MODE:-0}" "${root}" 'load-image'
     )"
 
     # Script can tell us what's the docker image name after it's loaded into
@@ -110,10 +111,17 @@ function main() {
     local -r subcommandTarget='command-wrapper-tldr'
     local -r subcommandDest="${out}/${subcommandTarget}"
 
+    local -r -a stackDockerArgs=(
+        --docker
+        --docker-image="${dockerImage}"
+        --no-docker-auto-pull
+        --docker-mount="${root}/cache/apk:/var/cache/apk"
+    )
+
     mkdir -p "${dest}/bin"
     stack \
         --local-bin-path="${dest}/bin" \
-        --docker --docker-image="${dockerImage}" \
+        "${stackDockerArgs[@]}" \
         install \
         "${flags[@]}" \
         "${target}"
@@ -162,8 +170,7 @@ function main() {
 
     local arch=
     arch="$(
-        stack --docker --docker-image="${dockerImage}" \
-            ghc -- --print-build-platform \
+        stack "${stackDockerArgs[@]}" ghc -- --print-build-platform \
         | sed 's/-unknown-/-/'
     )"
 

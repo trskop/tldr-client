@@ -1,14 +1,16 @@
 For latest version of this document see [`ChangeLog.md on GitHub`
 ](https://github.com/trskop/tldr-client/blob/main/ChangeLog.md).
 
+
 ### HEAD (unreleased changes)
 
 * Build against newer dependencies:
 
-  - LTS 18.6 → 20.26
-  - GHC 8.10.4 → 9.2.8 (covered by LTS 20.26)
-  - dhall 1.40.1 → 1.41.2 (covered by LTS 20.26)
+  - LTS 18.6 → 21.25
+  - GHC 8.10.4 → 9.4.8 (covered by LTS 21.25)
+  - dhall 1.40.1 → 1.41.2 (covered by LTS 21.25)
   - tldr 0.9.1 → 0.9.2
+  - Dropped country-codes dependency in favour of local implementation.
 
 
 ### 0.2.0.0

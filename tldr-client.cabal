@@ -1,6 +1,6 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.35.2.
+-- This file has been generated from package.yaml by hpack version 0.36.0.
 --
 -- see: https://github.com/sol/hpack
 
@@ -17,7 +17,7 @@ homepage:       https://github.com/trskop/tldr-client#readme
 bug-reports:    https://github.com/trskop/tldr-client/issues
 author:         Peter Trško
 maintainer:     peter.trsko@gmail.com
-copyright:      (c) 2021-2023 Peter Trško
+copyright:      (c) 2021-2024 Peter Trško
 license:        BSD3
 license-file:   LICENSE
 build-type:     Simple
@@ -41,6 +41,7 @@ flag static
 
 library
   exposed-modules:
+      Data.CountryCodes
       TldrClient.Client
       TldrClient.Configuration
       TldrClient.Index
@@ -90,7 +91,6 @@ library
     , base >=4.13 && <5
     , bytestring >=0.10 && <1
     , case-insensitive >=1.2 && <2
-    , country-codes >=0.1.4 && <1
     , dhall >=1.41.2 && <2
     , directory >=1.3.5 && <2
     , either >=5.0.1.1 && <6
@@ -107,7 +107,7 @@ library
     , temporary >=1.3 && <2
     , terminal-size >=0.3.2.1 && <1
     , terminfo >=0.4.1.4 && <1
-    , text >=1.2.4.0 && <2
+    , text >=1.2.4.0 && <3
     , tldr >=0.9.1 && <1
     , verbosity >=0.3 && <1
     , wreq >=0.5.3.2 && <1
@@ -164,7 +164,7 @@ executable command-wrapper-tldr
     , filepath >=1.4.2.1 && <2
     , mainplate
     , mtl >=2.2.2 && <3
-    , text >=1.2.4.0 && <2
+    , text >=1.2.4.0 && <3
     , tldr-client
     , verbosity >=0.3 && <1
   default-language: Haskell2010
@@ -219,7 +219,7 @@ executable tldr
       base >=4.13 && <5
     , directory >=1.3.5 && <2
     , mainplate
-    , text >=1.2.4.0 && <2
+    , text >=1.2.4.0 && <3
     , tldr-client
     , verbosity >=0.3 && <1
   default-language: Haskell2010

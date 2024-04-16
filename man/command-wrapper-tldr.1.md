@@ -1,6 +1,6 @@
 % COMMAND-WRAPPER-TLDR(1) TLDR Pages Client | TLDR Pages Client
 % Peter Trsko
-% 26 September 2021
+% 15 April 2024
 
 # NAME
 
@@ -12,28 +12,28 @@ collection of simplified and community-driven man pages.
 
 TOOLSET\_COMMAND \[GLOBAL\_OPTIONS] tldr
 \[\--config=*EXPR*]
-\[{\--language=*LANGUAGE*|-L *LANGUAGE*} \[...]]
-\[{\--platform=*PLATFORM*|-p *PLATFORM*} \[...]]
-\[{\--source=*SOURCE*|-s *SOURCE*} \[...]]
-*COMMAND* \[*SUBCOMMAND* \[...]\]
+\[{\--language=*LANGUAGE*|-L *LANGUAGE*} \[…]]
+\[{\--platform=*PLATFORM*|-p *PLATFORM*} \[…]]
+\[{\--source=*SOURCE*|-s *SOURCE*} \[…]]
+*COMMAND* \[*SUBCOMMAND* \[…]\]
 
 TOOLSET\_COMMAND \[GLOBAL\_OPTIONS] tldr {\--list|-l}
 \[\--config=*EXPR*]
-\[{\--language=*LANGUAGE*|-L *LANGUAGE*} \[...]]
-\[{\--platform=*PLATFORM*|-p *PLATFORM*} \[...]]
-\[{\--source=*SOURCE*|-s *SOURCE*} \[...]]
+\[{\--language=*LANGUAGE*|-L *LANGUAGE*} \[…]]
+\[{\--platform=*PLATFORM*|-p *PLATFORM*} \[…]]
+\[{\--source=*SOURCE*|-s *SOURCE*} \[…]]
 
 TOOLSET\_COMMAND \[GLOBAL\_OPTIONS] tldr {\--update|-u}
 \[\--config=*EXPR*]
-\[{\--language=*LANGUAGE*|-L *LANGUAGE*} \[...]]
-\[{\--platform=*PLATFORM*|-p *PLATFORM*} \[...]]
-\[{\--source=*SOURCE*|-s *SOURCE*} \[...]]
+\[{\--language=*LANGUAGE*|-L *LANGUAGE*} \[…]]
+\[{\--platform=*PLATFORM*|-p *PLATFORM*} \[…]]
+\[{\--source=*SOURCE*|-s *SOURCE*} \[…]]
 
 TOOLSET\_COMMAND \[GLOBAL\_OPTIONS] tldr \--clear-cache
 \[\--config=*EXPR*]
-\[{\--language=*LANGUAGE*|-L *LANGUAGE*} \[...]]
-\[{\--platform=*PLATFORM*|-p *PLATFORM*} \[...]]
-\[{\--source=*SOURCE*|-s *SOURCE*} \[...]]
+\[{\--language=*LANGUAGE*|-L *LANGUAGE*} \[…]]
+\[{\--platform=*PLATFORM*|-p *PLATFORM*} \[…]]
+\[{\--source=*SOURCE*|-s *SOURCE*} \[…]]
 
 TOOLSET\_COMMAND \[GLOBAL\_OPTIONS] tldr {\--config-print-type|\--config-typecheck}
 \[\--config=*EXPR*]
@@ -105,7 +105,7 @@ See *EXAMPLES* section, below, to see few basic usage examples.
 
 # OPTIONS
 
-*COMMAND* \[*SUBCOMMAND* \[...]\]
+*COMMAND* \[*SUBCOMMAND* \[…]\], *COMMAND*\[-*SUBCOMMAND*\[…]]
 :   Show pages for *COMMAND*. When *COMMAND* is followed by *SUBCOMMAND*s then they
     are treated as one command with dashes in between.
 
@@ -117,8 +117,8 @@ See *EXAMPLES* section, below, to see few basic usage examples.
     ```
 
 \--list, -l
-:   Lists all the pages for the current platform to the standard output; if
-    `--platform=all` is specified then all pages in all platforms are listed.
+:   Lists all the pages for the current platform to the standard output and
+    exit with exit code `0`.
 
     What is listed can be further restricted by using `--language=`*LANGUAGE*,
     `--source=`*SOURCE*, and aforementioned `--platform=`*PLATFORM* option.
@@ -138,16 +138,7 @@ See *EXAMPLES* section, below, to see few basic usage examples.
     Individual *SOURCE*s are specified in the configuration, see
     *CONFIGURATION* section.
 
-\--config=*EXPR*
-:   Set configuration to *EXPR*, where *EXPR* is a [Dhall](https://dhall-lang.org/)
-    expression; if application fails to parse or typecheck the *EXPR* it
-    terminates with exit code 1.
-
-    This option overrides application configuration file (see *FILES* section).
-    In other words, the `--config=`*EXPR* has the highest priority of all the
-    ways how configuration can be passed to the application.
-
-\--language=*LANGUAGE*, -l *LANGUAGE*
+\--language=*LANGUAGE*, \--language *LANGUAGE*, -l *LANGUAGE*
 :   Search/list pages written in *LANGUAGE*; this option can be used multiple
     times to specify multiple *LANGUAGE*s. Overrides default language detection
     mechanism, see *ENVIRONMENT VARIABLES* section for details on how language
@@ -175,7 +166,7 @@ See *EXAMPLES* section, below, to see few basic usage examples.
     mechanism fails to yield a result then the application defaults to `en`,
     which is considered to be "the default language".
 
-\--platform=*PLATFORM*, -p *PLATFORM*
+\--platform=*PLATFORM*, \--platform *PLATFORM*, -p *PLATFORM*
 :   Search or list pages for specified *PLATFORM*; this option can be used
     multiple times to specify multiple *PLATFORM*s. If not option is omitted
     then the platform the application is running on is used as a default.
@@ -201,13 +192,22 @@ See *EXAMPLES* section, below, to see few basic usage examples.
     *   `sunos`
     *   `windows`
 
-\--source=*SOURCE*, -s *SOURCE*
+\--source=*SOURCE*, \--source *SOURCE*, -s *SOURCE*
 :   Show, list, or update cache only for specified *SOURCE*s; by default all
     sources are used; this option can be used multiple times to specify
     multiple *SOURCE*s.
 
     Individual *SOURCE*s are specified in the configuration, see
     *CONFIGURATION* section.
+
+\--config=*EXPR*, \--config *EXPR*
+:   Set configuration to *EXPR*, where *EXPR* is a [Dhall](https://dhall-lang.org/)
+    expression; if application fails to parse or typecheck the *EXPR* it
+    terminates with exit code 1.
+
+    This option overrides application configuration file (see *FILES* section).
+    In other words, the `--config=`*EXPR* has the highest priority of all the
+    ways how configuration can be passed to the application.
 
 \--config-print-type
 :   Print Dhall type of configuration accepted by the application to standard
@@ -229,16 +229,17 @@ See *EXAMPLES* section, below, to see few basic usage examples.
 
 \--version, -v
 :   Print version information to standard output and terminate with exit code
-    0.
+    `0`.
 
 \--help, -h
-:   Print help information to standard output and terminate with exit code 0.
+:   Print help information to standard output and terminate with exit code `0`.
 
     Same as:
 
     ```bash
     TOOLSET_COMMAND help tldr
     ```
+
 
 # EXIT STATUS
 

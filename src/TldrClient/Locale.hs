@@ -1,7 +1,7 @@
 -- |
 -- Module:      TldrClient.Locale
 -- Description: Represents locale (language & region)
--- Copyright:   (c) 2021-2023 Peter Trško
+-- Copyright:   (c) 2021-2024 Peter Trško
 -- License:     BSD3
 --
 -- Maintainer:  peter.trsko@gmail.com
@@ -21,8 +21,6 @@ module TldrClient.Locale
     , languagePreference
     )
   where
-
-import Prelude (minBound, maxBound)
 
 import Control.Applicative (pure)
 import Control.Monad.Fail (fail)
@@ -47,7 +45,7 @@ import Data.Aeson (FromJSON(..), ToJSON(..))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Types qualified as Aeson (Parser)
 import Data.CountryCodes (CountryCode(..))
-import Data.CountryCodes qualified as CountryCode
+import Data.CountryCodes qualified as CountryCode (fromText, toString, values)
 import Data.LanguageCodes (ISO639_1)
 import Data.LanguageCodes qualified as LanguageCode
 import Data.Text (Text)
@@ -106,10 +104,7 @@ decodeLanguageCode = enum (Dhall.Map.fromList values)
         [(toText l, l) | l <- [LanguageCode.AA .. LanguageCode.ZU]]
 
 decodeCountryCode :: Dhall.Decoder CountryCode
-decodeCountryCode = enum (Dhall.Map.fromList values)
-  where
-    values :: [(Text, CountryCode)]
-    values = [(CountryCode.toText c, c) | c <- [minBound .. maxBound]]
+decodeCountryCode = enum (Dhall.Map.fromList CountryCode.values)
 
 enum :: Dhall.Map Text a -> Dhall.Decoder a
 enum values = Dhall.Decoder
@@ -130,8 +125,7 @@ type LanguageCode = ISO639_1
 
 instance FromJSON Locale where
     parseJSON :: Aeson.Value -> Aeson.Parser Locale
-    parseJSON = Aeson.withText "Locale" \t ->
-        either fail pure (parseLocale t)
+    parseJSON = Aeson.withText "Locale" (either fail pure . parseLocale)
 
 instance ToJSON Locale where
     toJSON :: Locale -> Aeson.Value
@@ -143,7 +137,7 @@ instance ToJSON Locale where
 localeToText :: Locale -> Text
 localeToText Locale{..} =
     Text.cons l1 (Text.singleton l2)
-    <> maybe "" (\c -> "_" <> CountryCode.toText c) country
+    <> maybe "" (\c -> "_" <> CountryCode.toString c) country
   where
     (l1, l2) = LanguageCode.toChars language
 
@@ -165,7 +159,7 @@ parseLocale t = do
           pure Nothing
         -- '_' must be right before country code:
       | Just ('_', c) <- Text.uncons possiblyCountry ->
-          case CountryCode.fromMText c of
+          case CountryCode.fromText c of
               Nothing ->
                   failUnknownCountry c
               r ->
@@ -189,6 +183,21 @@ parseLocale t = do
     failUnknownCountry :: Text -> Either String a
     failUnknownCountry c = Left ("Unknow country code in Locale: " <> show c)
 
+parseLocaleEnv :: Text -> Either String (Maybe Locale)
+parseLocaleEnv s
+  | Text.null s =
+        -- Setting LANG or LANGUAGE to empty string is the same thing as
+        -- keeping it unset.
+        pure Nothing
+
+  | s == "C" =
+        -- @\"C\"@ is a special value that means no localisation. In our case
+        -- this is the same thing as `defaultLocale`.
+        pure (Just defaultLocale)
+
+  | otherwise =
+        Just <$> parseLocale (Text.takeWhile (\c -> c /= '.' && c /= '@') s)
+
 -- | Figure out user language preference from system environment.
 --
 -- The algorithm itself is described in [Tldr-pages client specification v1.5:
@@ -209,7 +218,7 @@ languagePreference = do
         -- however, that doesn't make much sense if it is already in the
         -- priorityList.
         pure
-            if (lang `elem` priorityList)
+            if lang `elem` priorityList
                 then priorityList
                 else priorityList <> [lang]
 
@@ -246,46 +255,19 @@ lookupLanguage = optionalVar "LANGUAGE" >>= maybe (pure []) splitLanguage
       | Text.null t = pure []
       | otherwise = do
             let (x, rest) = Text.break (== ':') t
-            l <- parseLocale' x
-            ls <- splitLanguage (Text.drop 1 rest)
-            pure (maybe ls (: ls) l)
-
-    parseLocale' :: Text -> ParseEnv context (Maybe Locale)
-    parseLocale' s
-      | Text.null s =
-            -- Setting LANGUAGE to empty string is the same thing as keeping it
-            -- unset.
-            pure Nothing
-
-      | s == "C" =
-            -- @\"C\"@ is a special value that means no localisation. In our
-            -- case this is the same thing as `defaultLocale`.
-            pure (Just defaultLocale)
-
-      | otherwise =
-            case parseLocale (Text.takeWhile (\c -> c /= '.' && c /= '@') s) of
-                Right r -> pure (Just r)
+            case parseLocaleEnv x of
                 Left err -> throwError (ParseEnvError "LANGUAGE" err)
+                Right l -> do
+                    ls <- splitLanguage (Text.drop 1 rest)
+                    pure (maybe ls (: ls) l)
 
-lookupLang :: ParseEnv context (Maybe Locale)
-lookupLang = do
-    rawLang <- do
-        l <- optionalVar "LANG"
-        -- Setting LANG to empty string is the same thing as keeping it unset.
-        pure if
-          | Just t <- l, Text.null t -> Nothing
-          | otherwise -> l
-
-    for rawLang \(t :: Text) -> if
-      | t == "C" ->
-            -- @\"C\"@ is a special value that means no localisation. In our
-            -- case this is the same thing as `defaultLocale`.
-            pure defaultLocale
-
-      | otherwise ->
-          case parseLocale (Text.takeWhile (\c -> c /= '.' && c /= '@') t) of
-                Left err -> throwError (ParseEnvError "LANG" err)
-                Right lang -> pure lang
+lookupLang :: forall context. ParseEnv context (Maybe Locale)
+lookupLang = optionalVar "LANG" >>= \case
+    Nothing -> pure Nothing
+    Just t ->
+        case parseLocaleEnv t of
+            Left err -> throwError (ParseEnvError "LANG" err)
+            Right l -> pure l
 
 defaultLocale :: Locale
 defaultLocale = Locale

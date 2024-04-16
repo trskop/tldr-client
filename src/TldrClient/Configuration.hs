@@ -1,7 +1,7 @@
 -- |
 -- Module:      TldrClient.Configuration
 -- Description: Configuration data type and Dhall decoding for it
--- Copyright:   (c) 2021-2023 Peter Trško
+-- Copyright:   (c) 2021-2024 Peter Trško
 -- License:     BSD3
 --
 -- Maintainer:  peter.trsko@gmail.com
@@ -197,6 +197,9 @@ getLocales config@Configuration{locale} override =
             MissingEnvVarError var ->
                 Text.unpack var
                 <> ": Missing required environment variable."
+            EmptyEnvVarError var ->
+                Text.unpack var
+                <> ": Required environment variable has an empty value."
             ErrorMessage msg ->
                 msg
             UnknownError ->

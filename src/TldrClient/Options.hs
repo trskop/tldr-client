@@ -1,7 +1,7 @@
 -- |
 -- Module:      TldrClient.Options
 -- Description: Command-line options for a Tldr Client binary
--- Copyright:   (c) 2021-2023 Peter Trško
+-- Copyright:   (c) 2021-2024 Peter Trško
 -- License:     BSD3
 --
 -- Maintainer:  peter.trsko@gmail.com
@@ -26,22 +26,13 @@ import Control.Monad.Fail (fail)
 import Data.Bool (Bool(False), not, otherwise)
 import Data.Char (Char)
 import Data.Eq ((==))
-import Data.Foldable (any, concat, for_, length, null, sum)
+import Data.Foldable (any, concat, foldMap, for_, length, null, sum)
 import Data.Function (($), (.))
 import Data.Functor (($>), (<$), (<$>), (<&>), fmap)
 import Data.Int (Int)
-import Data.List qualified as List
-    ( concat
-    , elem
-    , filter
-    , repeat
-    , sort
-    , take
-    , zipWith
-    )
+import Data.List qualified as List (concat, elem, filter, sort, take)
 import Data.List.NonEmpty qualified as NonEmpty (toList)
 import Data.Maybe (Maybe(Just, Nothing), maybe)
-import Data.Monoid (mconcat)
 import Data.Semigroup ((<>))
 import Data.String (String, fromString)
 import Data.String qualified as String (words)
@@ -750,10 +741,8 @@ parse Params{..} = do
                 [ list [flag "list", shortFlag 'l']
                 , Options.fillSep
                     [ paragraph "Lists all the pages for the current platform\
-                      \ to the standard output; if"
-                    , Options.squotes (flag "platform" <> "=" <> value "all")
-                    , paragraph "is specified then all pages in all platforms\
-                        \ are listed."
+                      \ to the standard output and exit with exit code"
+                    , value "0" <> "."
                     ]
                 ]
             , ""
@@ -918,7 +907,7 @@ mkPrettyUtils colour =
         alt :: [Options.Doc] -> Options.Doc
         alt = \case
             [] -> ""
-            (d : ds) -> d <> mconcat (List.zipWith (<>) (List.repeat "|") ds)
+            (d : ds) -> d <> foldMap ("|" <>) ds
 
         ellipsis :: Options.Doc
         ellipsis = Options.brackets "..."
