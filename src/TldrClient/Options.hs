@@ -46,15 +46,7 @@ import System.Exit
     , exitSuccess
     , exitWith
     )
-import System.IO
-    ( FilePath
-    , Handle
-    , IO
-    , hIsTerminalDevice
-    , hPutStrLn
-    , stderr
-    , stdout
-    )
+import System.IO (FilePath, Handle, IO, hIsTerminalDevice, hPutStrLn, )
 
 import Data.CaseInsensitive (CI)
 import Data.Either.Validation qualified as Validation
@@ -70,9 +62,10 @@ import Data.Text qualified as Text
     , uncons
     , unlines
     )
-import Data.Text.IO qualified as Text (putStr, putStrLn)
+import Data.Text.IO qualified as Text (hPutStr, hPutStrLn, )
 import Data.Verbosity (Verbosity)
 import Dhall qualified (Decoder(expected), input, inputFile)
+import Dhall.Version (dhallVersion)
 import Options.Applicative qualified as Options
     ( InfoMod
     , Parser
@@ -119,7 +112,7 @@ import Options.Applicative.Help qualified as Options
     , vsep
     )
 import Prettyprinter qualified (pretty, line)
-import Prettyprinter.Render.Terminal qualified as Prettyprinter (putDoc)
+import Prettyprinter.Render.Terminal qualified as Prettyprinter (hPutDoc, )
 import Safe (atDef, initMay, lastDef, lastMay)
 import Database.SQLite.Simple qualified as SQLite (withConnection)
 import System.Console.Terminal.Size as Terminal (Window(Window, width), hSize)
@@ -127,6 +120,7 @@ import System.Directory (doesFileExist)
 
 import TldrClient.Client
     ( Action(ClearCache, List, Render, Update)
+    , InputOutput(InputOutput, errorOutput, standardOutput)
     , SomePlatform
     , parsePlatform
     )
@@ -158,6 +152,10 @@ data Mode
     | PrintType
     -- ^ Instead of doing anything just print the type of the configuration the
     -- application expects to be given.
+    | PrintConfig (Maybe Text)
+    -- ^ Instead of doing anything just print the the configuration expression
+    -- and exit. If the configuration is 'Nothing' we need to read the
+    -- environment variable or configuration file.
     | PrintVersion
     -- ^ Print version information and exit instead of doing anything.
     -- Configuration will not be parsed or used in any way.
@@ -237,12 +235,20 @@ data Params config = Params
     -- ^ Dhall 'Dhall.Decoder' consists of parser and expected type. The
     -- `String` parameter is rendered @programName :: `ProgramName`@ field
     -- value.
+    , encoder :: config -> String
+    -- ^ TODO: Switch to Dhall.Encoder config
     , mkDefault :: Verbosity -> ColourOutput -> String -> IO config
     -- ^ Construct default configuration if there is no configuration
     -- available. The `String` parameter is rendered
     -- @programName :: `ProgramName`@ field value.
-    , runCompletion :: config -> Shell -> Maybe Word -> [Text] -> IO ()
+    , runCompletion :: config -> Handle -> Shell -> Maybe Word -> [Text] -> IO ()
     -- ^ Command-line completer.
+    , inputOutput :: InputOutput
+    -- ^ These are here so that it's possible to parametrise the whole
+    -- application and optins processing with I\/O handles. It's very useful
+    -- for debugging to have this here even when the functionality is not
+    -- exposed. For example, it's possible to modify the code to open a file
+    -- and write the output there.
     }
 
 -- | Parse command line options, handle everything that is not related to the
@@ -274,18 +280,28 @@ parse Params{..} = do
             exitSuccess
 
         PrintType -> do
-            printType
+            printType standardOutput
+            exitSuccess
+
+        PrintConfig config -> do
+            -- TODO: When there is no config file (mkDefault used) then we
+            -- should probably complain.
+            parseConfig config >>= printConfig standardOutput
             exitSuccess
 
         PrintVersion -> do
-            Prettyprinter.putDoc $ prettyVersionInfo VersionInfo
+            Prettyprinter.hPutDoc standardOutput $ prettyVersionInfo VersionInfo
                 { clientVersion = version
-                , tldrClientSpecificationVersion = makeVersion [1,5]
+                , subcommandProtocolVersion = case programName of
+                    StandaloneApplication{} -> Nothing
+                    CommandWrapperSubcommand{} -> Just (makeVersion [1,0,0])
+                , tldrClientSpecificationVersion = makeVersion [2,2]
+                , dhallLibraryVersion = dhallVersion
                 }
             exitSuccess
 
         PrintCompletionInfo -> do
-            Text.putStrLn $ Text.unlines
+            Text.hPutStrLn standardOutput $ Text.unlines
                 [ "let toWordOptions ="
                 , "      λ(words : List Text) →"
                 , "        List/fold"
@@ -310,9 +326,11 @@ parse Params{..} = do
 
         Complete possiblyConfig shell index words -> do
             config <- parseConfig possiblyConfig
-            runCompletion config shell index words
+            runCompletion config standardOutput shell index words
             exitSuccess
   where
+    InputOutput{errorOutput, standardOutput} = inputOutput
+
     parseConfig :: Maybe Text -> IO config
     parseConfig commandLineExpr = do
         let decoder' = decoder programNameStr
@@ -335,10 +353,10 @@ parse Params{..} = do
                             else
                                 mkDefault verbosity colourOutput programNameStr
 
-    printType :: IO ()
-    printType = case Dhall.expected (decoder programNameStr) of
+    printType :: Handle -> IO ()
+    printType handle = case Dhall.expected (decoder programNameStr) of
         Validation.Success expr ->
-            Prettyprinter.putDoc
+            Prettyprinter.hPutDoc handle
                 ( Prettyprinter.pretty expr
                 <> Prettyprinter.line
                 )
@@ -346,6 +364,9 @@ parse Params{..} = do
         Validation.Failure err ->
             -- This indicates a bug in the Decoder.
             throwIO err
+
+    printConfig :: Handle -> config -> IO ()
+    printConfig handle = hPutStrLn handle . encoder
 
     programNameStr :: String
     programNameStr = programNameToString programName
@@ -388,7 +409,10 @@ parse Params{..} = do
                         }
 
                     handle :: Handle
-                    handle = if exit == ExitSuccess then stdout else stderr
+                    handle =
+                        if exit == ExitSuccess
+                            then standardOutput
+                            else errorOutput
 
                 applyTerminalStyle <- do
                     useColours <- shouldUseColours handle colourOutput
@@ -500,6 +524,7 @@ parse Params{..} = do
         <|> printTypeFlag
         <|> completionInfoFlag
         <|> (   ( typecheckFlag
+                <|> printConfigFlag
                 <|> ( completionFlag
                     <*> shellOption
                     <*> optional indexOption
@@ -541,6 +566,9 @@ parse Params{..} = do
 
     printTypeFlag :: Options.Parser Mode
     printTypeFlag = Options.flag' PrintType (Options.long "config-print-type")
+
+    printConfigFlag :: Options.Parser (Maybe Text -> Mode)
+    printConfigFlag = Options.flag' PrintConfig (Options.long "config-print")
 
     versionFlag :: Options.Parser Mode
     versionFlag = Options.flag' PrintVersion
@@ -795,6 +823,15 @@ parse Params{..} = do
                     ]
                 ]
             , ""
+--          , Options.nest 4 $ Options.vsep
+--              [ flag "config-print"
+--              , Options.fillSep
+--                  [ paragraph "Print configuration in the form of dhall\
+--                      \ expression and terminate with exit code\
+--                  , value "0" <> "."
+--                  ]
+--              ]
+            , ""
             , Options.nest 4 $ Options.vsep
                 [ flag "config-print-type"
                 , Options.fillSep
@@ -916,53 +953,60 @@ mkPrettyUtils colour =
 
 data Shell = Bash | Fish | Zsh
 
-completer :: Version -> Configuration -> Shell -> Maybe Word -> [Text] -> IO ()
-completer version config _shell index words
+completer
+    :: Version
+    -> Configuration
+    -> Handle
+    -> Shell
+    -> Maybe Word
+    -> [Text]
+    -> IO ()
+completer version config handle _shell index words
   | previousOneOf ["--platform", "-p"] =
-        completePlatform config CompletionQuery
+        completePlatform config handle CompletionQuery
             { prefix = ""
             , word = current
             }
 
   | previousOneOf ["--language", "-L"] =
-        completeLanguage config CompletionQuery
+        completeLanguage config handle CompletionQuery
             { prefix = ""
             , word = current
             }
 
   | previousOneOf ["--source", "-s"] =
-        completeSource config CompletionQuery
+        completeSource config handle CompletionQuery
             { prefix = ""
             , word = current
             }
 
   | previous == Just "--config" =
-        completeConfig version config CompletionQuery
+        completeConfig version config handle CompletionQuery
             { prefix = ""
             , word = current
             }
 
   | Just ('-', _) <- Text.uncons current = if
       | "--platform=" `Text.isPrefixOf` current ->
-            completePlatform config CompletionQuery
+            completePlatform config handle CompletionQuery
                 { prefix = "--platform="
                 , word = current
                 }
 
       | "--language=" `Text.isPrefixOf` current ->
-            completeLanguage config CompletionQuery
+            completeLanguage config handle CompletionQuery
                 { prefix = "--language="
                 , word = current
                 }
 
       | "--source=" `Text.isPrefixOf` current ->
-            completeSource config CompletionQuery
+            completeSource config handle CompletionQuery
                 { prefix = "--source="
                 , word = current
                 }
 
       | "--config=" `Text.isPrefixOf` current ->
-            completeConfig version config CompletionQuery
+            completeConfig version config handle CompletionQuery
                 { prefix = "--config="
                 , word = current
                 }
@@ -970,7 +1014,7 @@ completer version config _shell index words
         -- Value of `current` is the first option on the command-line.
       | null before ->
             for_ (prefixMatch current topLevelOptions) \completion ->
-                printCompletion Completion{prefix = "", completion}
+                printCompletion handle Completion{prefix = "", completion}
 
         -- These options mean that nothing else should be completed.
       | hadBeforeOneOf topLevelTerminalOptions ->
@@ -983,7 +1027,7 @@ completer version config _shell index words
                     opt <$ guard (not (hadBefore opt))
 
             for_ (prefixMatch current possibilities) \completion ->
-                printCompletion Completion{prefix = "", completion}
+                printCompletion handle Completion{prefix = "", completion}
 
       | hadBeforeOneOf ["--update", "-u"] -> do
             let possibilities :: [Text]
@@ -996,7 +1040,7 @@ completer version config _shell index words
                     ]
 
             for_ (prefixMatch current possibilities) \completion ->
-                printCompletion Completion{prefix = "", completion}
+                printCompletion handle Completion{prefix = "", completion}
 
         -- "--list", "-l", "--clear-cache", or default mode:
       | otherwise -> do
@@ -1018,14 +1062,14 @@ completer version config _shell index words
                     ]
 
             for_ (prefixMatch current possibilities) \completion ->
-                printCompletion Completion{prefix = "", completion}
+                printCompletion handle Completion{prefix = "", completion}
 
   | hadBeforeOneOf notDefaultModeOptions =
       -- There are not arguments, only options in these modes.
       pure ()
 
   | otherwise =
-        completeArgument config
+        completeArgument config handle
             ( List.filter (not . ("-" `Text.isPrefixOf`)) before
             <> [current]
             )
@@ -1091,8 +1135,8 @@ data CompletionQuery = CompletionQuery
     , word :: Text
     }
 
-completeLanguage :: Configuration -> CompletionQuery -> IO ()
-completeLanguage config = withPrefix \word -> do
+completeLanguage :: Configuration -> Handle -> CompletionQuery -> IO ()
+completeLanguage config handle = withPrefix handle \word -> do
     cacheDir <- getCacheDirectory config
     Index.getIndexFile cacheDir >>= \case
         Nothing ->
@@ -1101,8 +1145,8 @@ completeLanguage config = withPrefix \word -> do
             SQLite.withConnection indexFile \connection ->
                 List.sort <$> Index.getLocales connection word
 
-completePlatform :: Configuration -> CompletionQuery -> IO ()
-completePlatform config = withPrefix \word -> do
+completePlatform :: Configuration -> Handle -> CompletionQuery -> IO ()
+completePlatform config handle = withPrefix handle \word -> do
     let extra = prefixMatch word ["all"]
     cacheDir <- getCacheDirectory config
     list <- Index.getIndexFile cacheDir >>= \case
@@ -1113,13 +1157,13 @@ completePlatform config = withPrefix \word -> do
                 Index.getPlatforms connection word
     pure (List.sort (extra <> list))
 
-completeSource :: Configuration -> CompletionQuery -> IO ()
-completeSource Configuration{sources} = withPrefixPure \word ->
+completeSource :: Configuration -> Handle -> CompletionQuery -> IO ()
+completeSource Configuration{sources} handle = withPrefixPure handle \word ->
     prefixMatch word $ NonEmpty.toList sources <&> \Source{name} ->
         name
 
-completeConfig :: Version -> Configuration -> CompletionQuery -> IO ()
-completeConfig version _config = withPrefix \word -> do
+completeConfig :: Version -> Configuration -> Handle -> CompletionQuery -> IO ()
+completeConfig version _config handle = withPrefix handle \word -> do
     let env :: Text
         env = "env:"
 
@@ -1137,7 +1181,7 @@ completeConfig version _config = withPrefix \word -> do
             in  [base <> "/config.dhall"]
 
         paths, incompletePaths :: [Text]
-        paths = List.sort ["./", "../", "~/"]
+        paths = incompletePaths <&> (<> "/")
         incompletePaths = [".", "..", "~"]
 
     if
@@ -1161,8 +1205,8 @@ completeConfig version _config = withPrefix \word -> do
       | otherwise ->
             pure (prefixMatch word (env : paths <> remoteImport))
 
-completeArgument :: Configuration -> [Text] -> IO ()
-completeArgument config@Configuration{prefixes} cmds = do
+completeArgument :: Configuration -> Handle -> [Text] -> IO ()
+completeArgument config@Configuration{prefixes} handle cmds = do
     cacheDir <- getCacheDirectory config
     possiblyIndexFile <- Index.getIndexFile cacheDir
     for_ possiblyIndexFile \indexFile -> do
@@ -1192,27 +1236,27 @@ completeArgument config@Configuration{prefixes} cmds = do
                             <$> Index.getCommands connection cmd'
 
         for_ (List.sort list) \completion ->
-            printCompletion Completion{prefix = "", completion}
+            printCompletion handle Completion{prefix = "", completion}
 
 prefixMatch :: Text -> [Text] -> [Text]
 prefixMatch prefix options =
     List.sort (List.filter (prefix `Text.isPrefixOf`) options)
 
-withPrefixPure :: (Text -> [Text]) -> CompletionQuery -> IO ()
-withPrefixPure f = withPrefix (pure . f)
+withPrefixPure :: Handle -> (Text -> [Text]) -> CompletionQuery -> IO ()
+withPrefixPure handle f = withPrefix handle (pure . f)
 
-withPrefix :: (Text -> IO [Text]) -> CompletionQuery -> IO ()
-withPrefix f CompletionQuery{..} = do
+withPrefix :: Handle -> (Text -> IO [Text]) -> CompletionQuery -> IO ()
+withPrefix handle f CompletionQuery{..} = do
     completions <- f (Text.drop (Text.length prefix) word)
     for_ completions \completion ->
-        printCompletion Completion{prefix, completion}
+        printCompletion handle Completion{prefix, completion}
 
 data Completion = Completion
     { prefix :: Text
     , completion :: Text
     }
 
-printCompletion :: Completion -> IO ()
-printCompletion Completion{..} = do
-    Text.putStr prefix
-    Text.putStrLn completion
+printCompletion :: Handle -> Completion -> IO ()
+printCompletion handle Completion{..} = do
+    Text.hPutStr handle prefix
+    Text.hPutStrLn handle completion

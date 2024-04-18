@@ -1,7 +1,7 @@
 -- |
 -- Module:      Main
 -- Description: Client for tldr-pages
--- Copyright:   (c) 2021-2023 Peter Trško
+-- Copyright:   (c) 2021-2024 Peter Trško
 -- License:     BSD3
 --
 -- Maintainer:  peter.trsko@gmail.com
@@ -30,7 +30,7 @@ import Data.Semigroup ((<>))
 import Data.String (String)
 import Data.String qualified as String (unwords)
 import System.Exit (ExitCode(ExitFailure), exitWith)
-import System.IO (FilePath, IO, hPutStrLn, stderr)
+import System.IO (FilePath, IO, hPutStrLn, stderr, stdout)
 import Text.Show (Show, show)
 
 import Control.Monad.Except (throwError)
@@ -49,7 +49,7 @@ import System.Directory (XdgDirectory(XdgConfig, XdgData), getXdgDirectory)
 import System.Environment.Parser (ParseEnv, ParseEnvError(..), parseEnvIO, var)
 import System.FilePath ((<.>), (</>))
 
-import TldrClient.Client (client)
+import TldrClient.Client (InputOutput(..), client)
 import TldrClient.Configuration
     ( Configuration(Configuration, prefixes)
     , Source(Source, format, location, name)
@@ -70,11 +70,11 @@ import Paths_tldr_client (version)
 
 main :: IO ()
 main = do
-    env@Environment{..} <- parseEnvironment
+    env@Environment{..} <- parseEnvironment inputOutput
     let toolset = Text.unpack toolsetName
         subcommand = Text.unpack subcommandName
     when (verbosity >= Verbosity.Annoying) do
-        hPutStrLn stderr
+        hPutStrLn errorOutput
             (toolset <> " " <> subcommand <> ": Debug: " <> show env)
     (config, action) <- Options.parse Options.Params
         { version
@@ -84,6 +84,7 @@ main = do
         , configFile
         , configurationExpression
         , decoder = decodeSubcommandConfiguration verbosity colourOutput
+        , encoder = show -- TODO
         , mkDefault = mkDefConfiguration $ Just Source
             { name = toolsetName <> "-pages"
             , format = TldrPagesWithoutIndex
@@ -92,8 +93,14 @@ main = do
             }
         , runCompletion =
             Options.completer version . updatePrefixes toolsetName
+        , inputOutput
         }
-    client (updatePrefixes toolsetName config) action
+    client (updatePrefixes toolsetName config) inputOutput action
+  where
+    inputOutput@InputOutput{errorOutput} = InputOutput
+        { errorOutput = stderr
+        , standardOutput = stdout
+        }
 
 updatePrefixes :: Text -> Configuration -> Configuration
 updatePrefixes toolsetName cfg@Configuration{prefixes} = cfg
@@ -116,8 +123,8 @@ data Environment = Environment
     }
   deriving stock (Show)
 
-parseEnvironment :: IO Environment
-parseEnvironment = do
+parseEnvironment :: InputOutput -> IO Environment
+parseEnvironment InputOutput{errorOutput} = do
     dataDirectory <- getXdgDirectory XdgData ""
     env@Environment{configFile} <- parseEnvIO () dieEnvError do
         toolsetExe <- Text.unpack <$> nonEmptyVar "COMMAND_WRAPPER_EXE"
@@ -155,7 +162,7 @@ parseEnvironment = do
   where
     dieEnvError :: ParseEnvError -> IO a
     dieEnvError err = do
-        hPutStrLn stderr $ "Error: " <> case err of
+        hPutStrLn errorOutput $ "Error: " <> case err of
             ParseEnvError name msg ->
                 Text.unpack name <> ": " <> msg
             MissingEnvVarError name ->

@@ -15,14 +15,13 @@ let SourceLocation = ../SubcommandConfig/SourceLocation.dhall
 let Config = ./Type.dhall
 
 let tldrPages =
-      let tldrPagesUrls
+      let -- URL taken from
+          -- <https://github.com/tldr-pages/tldr/blob/v2.2/CLIENT-SPECIFICATION.md>
+          tldrPagesUrls
           : NonEmpty.Type Text
-          = { head = "https://tldr.sh/assets/tldr.zip"
-            , tail =
-              [ "https://raw.githubusercontent.com/tldr-pages/tldr-pages.github.io/master/assets/tldr.zip"
-              ]
-            }
-      
+          = NonEmpty.singleton
+              "https://github.com/tldr-pages/tldr/releases/latest/download/tldr.zip"
+
       in  NonEmpty.singleton
             Source
             { name = "tldr-pages"

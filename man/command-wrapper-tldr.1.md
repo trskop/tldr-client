@@ -1,6 +1,6 @@
 % COMMAND-WRAPPER-TLDR(1) TLDR Pages Client | TLDR Pages Client
 % Peter Trsko
-% 15 April 2024
+% 18 April 2024
 
 # NAME
 
@@ -53,8 +53,8 @@ community-driven man pages, for commonly used command-line tools.
 There are many clients for [tldr pages](https://tldr.sh/), this specific one is
 highly configurable (see *CONFIGURATION* section) and supports custom pages.
 
-This client supports [tldr-pages client specification version 1.5
-](https://github.com/tldr-pages/tldr/blob/v1.5/CLIENT-SPECIFICATION.md).
+This client supports [tldr-pages client specification version 2.2
+](https://github.com/tldr-pages/tldr/blob/v2.2/CLIENT-SPECIFICATION.md).
 
 See *EXAMPLES* section, below, to see few basic usage examples.
 
@@ -299,8 +299,8 @@ mentioned there applies to this subcommand as well.
 `LANG`, `LANGUAGE`
 :   These environment variables are used to figure out the default language and
     alternative languages to use. The algorithm how this is done is documented
-    in [tldr-pages client specification version 1.5
-    ](https://github.com/tldr-pages/tldr/blob/v1.5/CLIENT-SPECIFICATION.md).
+    in [tldr-pages client specification version 2.2
+    ](https://github.com/tldr-pages/tldr/blob/v2.2/CLIENT-SPECIFICATION.md).
 
 `NO_COLOR`
 :   This environment variable is an informal standard which is available
@@ -390,8 +390,8 @@ command-wrapper(1)
 
 * [tldr pages](https://tldr.sh/)
 * [Dhall configuration language](https://dhall-lang.org/)
-* [tldr-pages client specification version 1.5
-  ](https://github.com/tldr-pages/tldr/blob/v1.5/CLIENT-SPECIFICATION.md)
+* [tldr-pages client specification version 2.2
+  ](https://github.com/tldr-pages/tldr/blob/v2.2/CLIENT-SPECIFICATION.md)
 * [no-color.org](https://no-color.org)
 
 

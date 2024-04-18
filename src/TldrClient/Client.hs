@@ -1,7 +1,7 @@
 -- |
 -- Module:      TldrClient.Client
 -- Description: Tldr pages client logic
--- Copyright:   (c) 2021-2023 Peter Trško
+-- Copyright:   (c) 2021-2024 Peter Trško
 -- License:     BSD3
 --
 -- Maintainer:  peter.trsko@gmail.com
@@ -14,6 +14,7 @@ module TldrClient.Client
     , Action(..)
     , SomePlatform(..)
     , Platform(..)
+    , InputOutput(..)
     , parsePlatform
     )
   where
@@ -45,13 +46,12 @@ import Data.Traversable (for)
 import System.Exit (exitFailure)
 import System.IO
     ( FilePath
+    , Handle
     , IO
     , hClose
     , hFlush
     , hPutStr
     , hPutStrLn
-    , stderr
-    , stdout
     )
 import System.Info (os)
 import Text.Show (Show, show)
@@ -146,21 +146,27 @@ parsePlatform s = case CI.mk s of
         -- TODO: Should there be some kind of restriction on the name?
         Right (OtherPlatform (Char.toLower <$> s))
 
-client :: Configuration -> Action -> IO ()
-client config@Configuration{sources, verbosity, prefixes} action = do
-    putDebugLn config stderr (show config)
-    putDebugLn config stderr (show action)
+data InputOutput = InputOutput
+    { errorOutput :: Handle
+    , standardOutput :: Handle
+    }
+
+client :: Configuration -> InputOutput -> Action -> IO ()
+client config inputOutput action = do
+    putDebugLn config errorOutput ("Configuration: " <> show config)
+    putDebugLn config errorOutput ("Action: " <> show action)
 
     cacheDirectory <- getCacheDirectory config
-    putDebugLn config stderr ("Cache directory: " <> cacheDirectory)
+    putDebugLn config errorOutput ("Cache directory: " <> cacheDirectory)
 
     createDirectoryIfMissing True cacheDirectory
     indexFile <- Index.newUnlessExists cacheDirectory
+    putDebugLn config errorOutput ("Index file: " <> indexFile)
 
     case action of
         Render platformOverride localeOverride sourcesOverride commands -> do
             let command = List.intercalate "-" commands
-            locales <- getLocales config localeOverride
+            locales <- getLocales config errorOutput localeOverride
             entries <- SQLite.withConnection indexFile \connection -> do
                 let doLookup prefix = do
                         let query = Index.LookupQuery
@@ -173,7 +179,7 @@ client config@Configuration{sources, verbosity, prefixes} action = do
                                 , locales = Just (localeToText <$> locales)
                                 , platforms = getPlatforms platformOverride
                                 }
-                        putDebugLn config stderr ("Query: " <> show query)
+                        putDebugLn config errorOutput ("Query: " <> show query)
                         Index.lookup connection query
 
                 if null prefixes
@@ -183,20 +189,20 @@ client config@Configuration{sources, verbosity, prefixes} action = do
                         concat <$> for prefixes \prefix ->
                             doLookup (prefix <> "-")
 
-            putDebugLn config stderr "Entries that were found:"
+            putDebugLn config errorOutput "Entries that were found:"
             for_ entries \entry ->
-                putDebugLn config stderr ("  " <> show entry)
+                putDebugLn config errorOutput ("  " <> show entry)
 
             case listToMaybe entries of
                 Nothing -> do
-                    missingPageMessage config command
+                    missingPageMessage config inputOutput command
                     exitFailure
 
                 Just entry ->
-                    renderEntry config cacheDirectory entry
+                    renderEntry config inputOutput cacheDirectory entry
 
         List platformOverride localeOverride sourcesOverride -> do
-            locales <- getLocales config localeOverride
+            locales <- getLocales config errorOutput localeOverride
             entries <- SQLite.withConnection indexFile \connection -> do
                 let doList prefix = do
                         let query = Index.ListQuery
@@ -209,7 +215,7 @@ client config@Configuration{sources, verbosity, prefixes} action = do
                                 , platforms = getPlatforms platformOverride
                                 , prefix
                                 }
-                        putDebugLn config stderr ("Query: " <> show query)
+                        putDebugLn config errorOutput ("Query: " <> show query)
                         Index.list connection query
 
                 if null prefixes
@@ -228,7 +234,7 @@ client config@Configuration{sources, verbosity, prefixes} action = do
                         , filePath
                         } = entry
 
-                hPutStrLn stdout case filePath of
+                hPutStrLn standardOutput case filePath of
                     Just path -> Text.unpack source <> ": " <> path
                     Nothing ->
                         let path = "pages." <> Text.unpack locale
@@ -266,7 +272,7 @@ client config@Configuration{sources, verbosity, prefixes} action = do
                         $ List.filter (`List.notElem` sourceNames)
                             sourcesOverride
 
-                putWarningLn config stderr
+                putWarningLn config errorOutput
                     ( "Unknown page sources specified on command line: "
                     <> unknownSources
                     )
@@ -279,7 +285,7 @@ client config@Configuration{sources, verbosity, prefixes} action = do
                         Text.unpack . Text.intercalate ", "
                         $ NonEmpty.toList sources <&> \Source{name} -> name
 
-                putErrorLn config stderr
+                putErrorLn config errorOutput
                     ( "No known (configured) page source was specified on the\
                     \ command line. Configured sources are: " <> sourceNames
                     )
@@ -290,18 +296,19 @@ client config@Configuration{sources, verbosity, prefixes} action = do
 
             for_ sourcesToFetch \source@Source{name} -> do
                 when (verbosity > Verbosity.Silent) do
-                    hPutStrLn stdout ("Updating '" <> Text.unpack name <> "'…")
-                updateCache UpdateCacheParams
+                    hPutStrLn standardOutput
+                        ("Updating '" <> Text.unpack name <> "'…")
+                updateCache inputOutput UpdateCacheParams
                   { config
                   , cacheDirectory
                   , indexFile
                   , source
                   }
                 when (verbosity > Verbosity.Silent) do
-                    hPutStrLn stdout ("… done.")
+                    hPutStrLn standardOutput "… done."
 
         ClearCache platformOverride localeOverride sourcesOverride -> do
-            locales <- getLocales config localeOverride
+            locales <- getLocales config errorOutput localeOverride
             let query = Index.PruneQuery
                     { sources =
                         -- TODO: The override source may not exist (be
@@ -311,9 +318,12 @@ client config@Configuration{sources, verbosity, prefixes} action = do
                     , locales = Just (localeToText <$> locales)
                     , platforms = getPlatforms platformOverride
                     }
-            putDebugLn config stderr ("Query: " <> show query)
+            putDebugLn config errorOutput ("Query: " <> show query)
             SQLite.withConnection indexFile \connection ->
                 Index.prune connection query
+  where
+    Configuration{sources, verbosity, prefixes} = config
+    InputOutput{errorOutput, standardOutput} = inputOutput
 
 data FailedToLoadTldrPagesIndex = FailedToLoadTldrPagesIndex
     { source :: String
@@ -334,26 +344,28 @@ data UpdateCacheParams = UpdateCacheParams
     , source :: Source
     }
 
-updateCache :: UpdateCacheParams -> IO ()
+updateCache :: InputOutput -> UpdateCacheParams -> IO ()
 
 updateCache
+  InputOutput{standardOutput}
   UpdateCacheParams
     { config = Configuration{verbosity}
     , indexFile
     , source = Source{name, format, location = Local dir}
     } = do
     when (verbosity > Verbosity.Silent) do
-        hPutStr stdout ("  Indexing '" <> dir <> "'… ")
-        hFlush stdout
+        hPutStr standardOutput ("  Indexing '" <> dir <> "'… ")
+        hFlush standardOutput
 
     indexSource IndexSourceParams{indexFile, source = name, format, dir}
         `onException` when (verbosity > Verbosity.Silent) do
-            hPutStrLn stdout "failed"
+            hPutStrLn standardOutput "failed"
 
     when (verbosity > Verbosity.Silent) do
-        hPutStrLn stdout "success"
+        hPutStrLn standardOutput "success"
 
 updateCache
+  InputOutput{errorOutput, standardOutput}
   UpdateCacheParams
     { config = config@Configuration{verbosity}
     , cacheDirectory
@@ -361,14 +373,14 @@ updateCache
     , source = Source{name, format, location = Remote urls}
     } =
   do
-    putDebugLn config stderr
+    putDebugLn config errorOutput
         ("Target directory for '" <> sourceName <> "': " <> targetDir)
 
     withTempDirectory cacheDirectory sourceName \dir -> do
         when (verbosity > Verbosity.Silent) do
-            hPutStr stdout
+            hPutStr standardOutput
                 ("  Downloading '" <> sourceName <> "' (" <> url <> ")… ")
-            hFlush stdout
+            hFlush standardOutput
 
         -- TODO: At the moment we only try the primary URL, however, we should
         -- try the mirrors if we fail to download the primary URL.
@@ -376,15 +388,15 @@ updateCache
         case httpResponse of
             Left e -> do
                 when (verbosity > Verbosity.Silent) do
-                    hPutStrLn stdout "failed"
-                putErrorLn config stderr
+                    hPutStrLn standardOutput "failed"
+                putErrorLn config errorOutput
                     ( "Download of " <> url <> " failed with: "
                     <> displayException @SomeException e
                     )
 
             Right (view responseBody -> body) -> do
                 when (verbosity > Verbosity.Silent) do
-                    hPutStrLn stdout "success"
+                    hPutStrLn standardOutput "success"
 
                 unpackAndIndex body dir
   where
@@ -399,11 +411,11 @@ updateCache
 
     unpackAndIndex body dir = do
         when (verbosity > Verbosity.Silent) do
-            hPutStr stdout
+            hPutStr standardOutput
                 ( "  Unpacking and indexing '" <> sourceName
                 <> "' (may take a while)… "
                 )
-            hFlush stdout
+            hFlush standardOutput
         r <- try do
             Zip.extractFilesFromArchive [Zip.OptDestination dir]
                 (Zip.toArchive body)
@@ -422,15 +434,15 @@ updateCache
         case r of
             Left e -> do
                 when (verbosity > Verbosity.Silent) do
-                    hPutStrLn stdout "failed"
-                putErrorLn config stderr
+                    hPutStrLn standardOutput "failed"
+                putErrorLn config errorOutput
                     ( "Unpacking of " <> url <> " failed with: "
                     <> displayException @SomeException e
                     )
 
             Right _ -> do
                 when (verbosity > Verbosity.Silent) do
-                    hPutStrLn stdout "success"
+                    hPutStrLn standardOutput "success"
 
 currentPlatform :: SomePlatform
 currentPlatform = case CI.mk os of
@@ -456,8 +468,8 @@ getPlatforms platformOverride =
         OtherPlatform p ->
             Just (fromString p :| ["common"])
 
-renderEntry :: Configuration -> FilePath -> Index.Entry -> IO ()
-renderEntry config cacheDirectory Index.Entry{..} =
+renderEntry :: Configuration -> InputOutput -> FilePath -> Index.Entry -> IO ()
+renderEntry config InputOutput{..} cacheDirectory Index.Entry{..} =
     case filePath of
         Nothing ->
             renderContent
@@ -469,23 +481,23 @@ renderEntry config cacheDirectory Index.Entry{..} =
             if fileExists
                 then renderFile path
                 else do
-                    putDebugLn config stderr
+                    putDebugLn config errorOutput
                         (path <> ": File not found, using cached content.")
                     renderContent
   where
     renderContent = do
-        putDebugLn config stderr "Page found in cache only."
+        putDebugLn config errorOutput "Page found in cache only."
 
         let file = Text.unpack command <.> "md"
         withTempFile cacheDirectory file \path h -> do
             ByteString.hPutStr h content
             hClose h
-            Tldr.renderPage path stdout Tldr.UseColor
+            Tldr.renderPage path standardOutput Tldr.UseColor
 
     renderFile path = do
-        putDebugLn config stderr ("Page found: " <> path)
+        putDebugLn config errorOutput ("Page found: " <> path)
 
-        Tldr.renderPage path stdout Tldr.UseColor
+        Tldr.renderPage path standardOutput Tldr.UseColor
 
 data IndexSourceParams = IndexSourceParams
     { indexFile :: FilePath
@@ -515,10 +527,10 @@ indexSource IndexSourceParams{..} =
             TldrPagesWithoutIndex ->
                 TldrPagesIndex.indexAndLoad source dir loadBatch
 
-missingPageMessage :: Configuration -> String -> IO ()
-missingPageMessage Configuration{verbosity} command =
+missingPageMessage :: Configuration -> InputOutput -> String -> IO ()
+missingPageMessage config inputOutput command =
     when (verbosity > Verbosity.Silent) do
-        hPutStr stdout $ unlines
+        hPutStr standardOutput $ unlines
             [ "Unable to find page for command '" <> command <> "'"
             , ""
             , "Possible reasons why this may have had happened:"
@@ -536,10 +548,19 @@ missingPageMessage Configuration{verbosity} command =
                 \ addition to the official tldr-pages set by going to:"
             , ""
             , "    " <> requestPageUrl
+            , ""
+            , "  Or if its something that is not meant to be public you can\
+              \ add it into a into a local set of tldr-pages. See `tldr(1)`\
+              \ manual page for more information."
             ]
   where
+    Configuration{verbosity} = config
+    InputOutput{standardOutput} = inputOutput
+
+    requestPageUrl :: String
     requestPageUrl =
         "https://github.com/tldr-pages/tldr/issues/new?title=page%20request:%20"
         <> urlEncode command
 
+    urlEncode :: String -> String
     urlEncode t = t -- TODO

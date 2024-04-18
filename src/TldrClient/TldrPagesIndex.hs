@@ -160,6 +160,10 @@ load source dir process onJsonParsingError = do
         _ | Text.null t -> ""
           | otherwise   -> "." <> Text.unpack t
 
+-- |
+--
+-- > ${root}/
+-- >
 indexAndLoad
     :: Text
     -- ^ Source name.

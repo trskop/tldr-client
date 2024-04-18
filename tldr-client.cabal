@@ -5,7 +5,7 @@ cabal-version: 1.12
 -- see: https://github.com/sol/hpack
 
 name:           tldr-client
-version:        0.2.1.0
+version:        0.3.0.0
 synopsis:       Client for tldr-pages
 
 description:    Client for [tldr-pages](https://tldr.sh/).
@@ -42,6 +42,8 @@ flag static
 library
   exposed-modules:
       Data.CountryCodes
+      Data.LanguageCodes.Extended
+      Dhall.Marshal.Decode.Extended
       TldrClient.Client
       TldrClient.Configuration
       TldrClient.Index
@@ -230,3 +232,57 @@ executable tldr
     cpp-options: -DSTATIC_EXECUTABLE
     cc-options: -static
     ld-options: -static -pthread
+
+test-suite tldr-client-unit-tests
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  other-modules:
+      Tests.TldrClient.Locale
+      Paths_tldr_client
+  hs-source-dirs:
+      test
+  default-extensions:
+      ApplicativeDo
+      BlockArguments
+      DataKinds
+      DefaultSignatures
+      DeriveAnyClass
+      DeriveFunctor
+      DeriveGeneric
+      DerivingStrategies
+      DuplicateRecordFields
+      FlexibleContexts
+      FlexibleInstances
+      GeneralizedNewtypeDeriving
+      ImportQualifiedPost
+      InstanceSigs
+      LambdaCase
+      MultiParamTypeClasses
+      MultiWayIf
+      NamedFieldPuns
+      NoImplicitPrelude
+      OverloadedStrings
+      PatternSynonyms
+      PolyKinds
+      RankNTypes
+      RecordWildCards
+      ScopedTypeVariables
+      StandaloneDeriving
+      TupleSections
+      TypeApplications
+      TypeFamilies
+      TypeOperators
+      ViewPatterns
+  ghc-options: -Wall -Wcompat -Wimplicit-prelude -Wincomplete-record-updates -Wpartial-fields -Wmissing-deriving-strategies -Wredundant-record-wildcards -Wunused-packages -Wunused-record-wildcards -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.13 && <5
+    , call-stack >=0.2.0 && <1
+    , mainplate
+    , tasty >=1.2.3 && <2
+    , tasty-hunit >=0.10.0.2 && <1
+    , text >=1.2.4.0 && <3
+    , tldr-client
+    , unordered-containers >=0.2.15 && <1
+  default-language: Haskell2010
+  if flag(pedantic)
+    ghc-options: -Wprepositive-qualified-module

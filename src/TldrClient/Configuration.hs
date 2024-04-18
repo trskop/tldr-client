@@ -48,7 +48,6 @@ import System.IO
     , IO
     , hIsTerminalDevice
     , hPutStrLn
-    , stderr
     )
 import Text.Show (Show)
 
@@ -182,14 +181,14 @@ getCacheDirectory :: Configuration -> IO FilePath
 getCacheDirectory Configuration{cacheDirectory} =
     maybe (getXdgDirectory XdgCache "tldr-client") pure cacheDirectory
 
-getLocales :: Configuration -> Maybe Locale -> IO (NonEmpty Locale)
-getLocales config@Configuration{locale} override =
+getLocales :: Configuration -> Handle -> Maybe Locale -> IO (NonEmpty Locale)
+getLocales config@Configuration{locale} errorOutput override =
     maybe (parseEnvIO () dieParseEnvError languagePreference) (pure . pure)
         (override <|> locale)
   where
     dieParseEnvError :: ParseEnvError -> IO a
     dieParseEnvError err = do
-        putErrorLn config stderr case err of
+        putErrorLn config errorOutput case err of
             ParseEnvError var msg ->
                 Text.unpack var
                 <> ": Failed to parse environment variable: "
@@ -227,19 +226,13 @@ mkDefConfiguration possiblySource verbosity colourOutput programName =
     tldrPagesOfficialSource = Source
         { name = "tldr-pages"
         , format = TldrPagesWithIndex
-        , location = Remote (assetsUrl1 :| [assetsUrl2])
+        , location = Remote (assetsUrl1 :| [])
         }
 
     -- URLs are taken from:
-    -- <https://github.com/tldr-pages/tldr/blob/main/CLIENT-SPECIFICATION.md>
-    --
-    -- The `assetsUrl1` should be pointing to `assetsUrl2`. There are reasons
-    -- why downloading the first one may fail while downloading from the second
-    -- location may succeed. These include things like missconfiguration (on
-    -- the side of tldr-pages) or DNS resolution issue.
-    assetsUrl1 = "https://tldr.sh/assets/tldr.zip"
-    assetsUrl2 =
-      "https://raw.githubusercontent.com/tldr-pages/tldr-pages.github.io/master/assets/tldr.zip"
+    -- <https://github.com/tldr-pages/tldr/blob/v2.2/CLIENT-SPECIFICATION.md>
+    assetsUrl1 =
+        "https://github.com/tldr-pages/tldr/releases/latest/download/tldr.zip"
 
 getUseColours :: Configuration -> Handle -> IO Bool
 getUseColours Configuration{colourOutput} handle =

@@ -1,8 +1,8 @@
 # TLDR Client
 
 Highly configurable client for [tldr-pages](https://tldr.sh/) that supports
-[Tldr-pages Client Specification v1.5
-](https://github.com/tldr-pages/tldr/blob/v1.5/CLIENT-SPECIFICATION.md).
+[Tldr-pages Client Specification v2.2
+](https://github.com/tldr-pages/tldr/blob/v2.2/CLIENT-SPECIFICATION.md).
 
 
 ## Usage
@@ -68,3 +68,5 @@ More complicated example that can be turned into a library can be found in
   preferences. When a page is provided by multiple sources it is a good idea
   for certain sources to have precedence. For example, user will probably want
   their custom pages to be preferred over standard tldr pages.
+
+- [ ] Support language preferences/filtering when populating offline cache.

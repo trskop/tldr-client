@@ -1,7 +1,7 @@
 -- |
 -- Module:      Data.CountryCodes
 -- Description: Two-letter country codes defined in ISO 3166-1
--- Copyright:   (c) 2024 Peter Trško
+-- Copyright:   (c) 2021-2024 Peter Trško
 -- License:     BSD3
 --
 -- Maintainer:  peter.trsko@gmail.com
@@ -14,7 +14,10 @@ module Data.CountryCodes
     , fromText
     , toString
     , values
-    )
+
+    -- * Dhall Encoding
+    , decode
+    , )
   where
 
 import Prelude (Bounded, Enum, maxBound, minBound, )
@@ -31,7 +34,8 @@ import Text.Show (Show, show, )
 
 import Data.Text (Text, )
 import Data.Text qualified as Text (null, uncons, )
-
+import Dhall.Map qualified (fromList, )
+import Dhall.Marshal.Decode.Extended qualified as Dhall (Decoder, enum, )
 
 -- | 2-letter country code as defined by [ISO 3166-1 alpha-2
 -- ](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2).
@@ -559,3 +563,7 @@ values :: IsString s => [(s, CountryCode)]
 values = [(toString c, c) | c <- [minBound .. maxBound]]
 {-# SPECIALISE values :: [(Text, CountryCode)] #-}
 {-# INLINEABLE values #-}
+
+decode :: Dhall.Decoder CountryCode
+decode = Dhall.enum (Dhall.Map.fromList values)
+{-# INLINEABLE decode #-}

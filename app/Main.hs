@@ -1,7 +1,7 @@
 -- |
 -- Module:      Main
 -- Description: Client for tldr-pages
--- Copyright:   (c) 2021-2023 Peter Trško
+-- Copyright:   (c) 2021-2024 Peter Trško
 -- License:     BSD3
 --
 -- Maintainer:  peter.trsko@gmail.com
@@ -24,7 +24,7 @@ import Data.Semigroup ((<>))
 import Data.String (String)
 import System.Environment (getProgName)
 import System.Exit (ExitCode(ExitFailure), exitWith)
-import System.IO (FilePath, IO, hPutStrLn, stderr)
+import System.IO (FilePath, IO, hPutStrLn, stderr, stdout)
 import Text.Show (Show, show)
 
 import Data.Output.Colour (ColourOutput)
@@ -39,7 +39,7 @@ import Data.Verbosity qualified as Verbosity (Verbosity(Annoying, Normal))
 import System.Directory (XdgDirectory(XdgConfig), getXdgDirectory)
 import System.Environment.Parser (ParseEnvError(..), optionalVar, parseEnvIO)
 
-import TldrClient.Client (client)
+import TldrClient.Client (InputOutput(..), client)
 import TldrClient.Configuration
     ( decodeStandaloneConfiguration
     , mkDefConfiguration
@@ -56,9 +56,9 @@ import Paths_tldr_client (version)
 
 main :: IO ()
 main = do
-    env@Environment{..} <- parseEnvironment
+    env@Environment{..} <- parseEnvironment inputOutput
     when (verbosity >= Verbosity.Annoying) do
-        hPutStrLn stderr (programName <> ": Debug: " <> show env)
+        hPutStrLn errorOutput (programName <> ": Debug: " <> show env)
     (config, action) <- Options.parse Options.Params
         { version
         , colourOutput
@@ -67,10 +67,17 @@ main = do
         , configFile
         , configurationExpression
         , decoder = decodeStandaloneConfiguration
+        , encoder = show -- TODO
         , mkDefault = mkDefConfiguration Nothing
         , runCompletion = Options.completer version
+        , inputOutput
         }
-    client config action
+    client config inputOutput action
+  where
+    inputOutput@InputOutput{errorOutput} = InputOutput
+        { errorOutput = stderr
+        , standardOutput = stdout
+        }
 
 data Environment = Environment
     { programName :: String
@@ -81,8 +88,8 @@ data Environment = Environment
     }
   deriving stock (Show)
 
-parseEnvironment :: IO Environment
-parseEnvironment = do
+parseEnvironment :: InputOutput -> IO Environment
+parseEnvironment InputOutput{errorOutput} = do
     programName <- getProgName
     env@Environment{configFile} <- parseEnvIO () (dieEnvError programName) do
         colourOutput <- fromMaybe ColourOutput.Auto <$> do
@@ -99,7 +106,7 @@ parseEnvironment = do
   where
     dieEnvError :: String -> ParseEnvError -> IO a
     dieEnvError programName err = do
-        hPutStrLn stderr $ programName <> ": Error: " <> case err of
+        hPutStrLn errorOutput $ programName <> ": Error: " <> case err of
             ParseEnvError name msg ->
                 Text.unpack name <> ": " <> msg
             MissingEnvVarError name ->

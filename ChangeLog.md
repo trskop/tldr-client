@@ -12,6 +12,20 @@ For latest version of this document see [`ChangeLog.md on GitHub`
   - tldr 0.9.1 → 0.9.2
   - Dropped country-codes dependency in favour of local implementation.
 
+* Unit tests for various parts of the client.
+
+* Support [tldr-pages client specification v2.2
+  ](https://github.com/tldr-pages/tldr/blob/v2.2/CLIENT-SPECIFICATION.md).
+
+* Handling of locale(s) is now a lot more in line with the tldr-pages
+  client specification and handles things like `C.utf8` locale
+  correctly.
+
+* Standard output and error output handles are passed explicitly for
+  easier testing and debugging.
+
+* Lots of refactoring and code reorganisation in general.
+
 
 ### 0.2.0.0
 
