@@ -24,6 +24,13 @@ For latest version of this document see [`ChangeLog.md on GitHub`
 * Standard output and error output handles are passed explicitly for
   easier testing and debugging.
 
+* Support future rename of `osx` platform to `macos`.
+
+* Support download of tldr-pages mirrors.
+
+* Better error reporting and correct exit codes when download and/or indexing
+  fails during update of local cache.
+
 * Lots of refactoring and code reorganisation in general.
 
 

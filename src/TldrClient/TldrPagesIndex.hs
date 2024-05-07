@@ -1,7 +1,7 @@
 -- |
 -- Module:      TldrClient.TldrPagesIndex
 -- Description: Structure and indexing of tldr-pages
--- Copyright:   (c) 2021-2023 Peter Trško
+-- Copyright:   (c) 2021-2024 Peter Trško
 -- License:     BSD3
 --
 -- Maintainer:  peter.trsko@gmail.com
@@ -54,6 +54,7 @@ import Data.Text qualified as Text (null, unpack)
 import System.Directory (listDirectory)
 import System.FilePath ((<.>), (</>), dropExtension, takeExtension)
 
+import Data.List.Compat (List, )
 import TldrClient.Locale (Locale(..), )
 import TldrClient.Locale qualified as Locale (toText, )
 import TldrClient.Index qualified as Index (Entry(..))
@@ -61,7 +62,7 @@ import TldrClient.Index qualified as Index (Entry(..))
 
 -- | Represents @index.json@ of @tldr-pages@.
 data Index = Index
-    { commands :: [Command]
+    { commands :: List Command
     }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (FromJSON, ToJSON)
@@ -128,25 +129,25 @@ load source dir process onJsonParsingError = do
                 entries <- for (commandToEntries command) readContent
                 process entries
   where
-    commandToEntries :: Command -> [Index.Entry]
-    commandToEntries Command{name, targets} = NonEmpty.toList do
-        Target{..} <- targets
+    commandToEntries :: Command -> List Index.Entry
+    commandToEntries command = NonEmpty.toList do
+        Target{..} <- command.targets
         let locale = someLocaleToText language
         pure Index.Entry
             { source
-            , command = name
+            , command = command.name
             , platform = os
             , locale
             , content = "" -- Empty content, will need to be populated.
             , filePath = Just
                 -- pages${locale}/${platform}/${command}.md
                 ( pagesDir language locale </> Text.unpack os
-                </> Text.unpack name <.> "md"
+                </> Text.unpack command.name <.> "md"
                 )
             }
 
     readContent :: Index.Entry -> IO Index.Entry
-    readContent entry@Index.Entry{filePath} = case filePath of
+    readContent entry = case entry.filePath of
         Nothing ->
             -- This should never happen due to how entries are
             -- constructed above.

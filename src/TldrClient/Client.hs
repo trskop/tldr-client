@@ -11,7 +11,15 @@
 -- Tldr pages client logic.
 module TldrClient.Client
     ( client
+
+    -- * Client action
     , Action(..)
+    , RenderParams(..)
+    , ListParams(..)
+    , UpdateParams(..)
+    , ClearCeacheParams(..)
+
+    -- * Client standard input and output
     , InputOutput(..)
     )
   where
@@ -20,20 +28,19 @@ import Control.Applicative (pure)
 import Control.Exception
     ( Exception(displayException)
     , SomeException
-    , onException
     , throwIO
     , try
     )
 import Control.Monad (when)
-import Data.Bool (Bool(True), (&&), not)
+import Data.Bool (Bool(False, True), (&&), not, )
 import Data.Either (Either(Left, Right))
 import Data.Eq (Eq, (/=))
-import Data.Foldable (concat, for_, length, null)
+import Data.Foldable (and, concat, for_, length, null)
 import Data.Function (($), (.))
-import Data.Functor ((<$>), (<&>))
-import Data.List qualified as List (elem, filter, intercalate, notElem)
+import Data.Functor ((<$), (<$>), (<&>), )
+import Data.List qualified as List (elem, filter, notElem)
 import Data.List.NonEmpty (NonEmpty((:|)), nonEmpty)
-import Data.List.NonEmpty qualified as NonEmpty (head, toList)
+import Data.List.NonEmpty qualified as NonEmpty (toList)
 import Data.Maybe (Maybe(Just, Nothing), fromMaybe, listToMaybe)
 import Data.Ord ((>))
 import Data.Semigroup ((<>))
@@ -57,13 +64,14 @@ import Codec.Archive.Zip qualified as Zip
     , toArchive
     )
 import Control.Lens (view)
-import Data.ByteString qualified as ByteString (hPutStr)
+import Data.ByteString qualified as ByteString (hPutStr, )
+import Data.ByteString.Lazy qualified as Lazy (ByteString, )
 --import qualified Data.Output.Colour as ColourOutput (ColourOutput(Auto))
 import Data.Text (Text)
 import Data.Text qualified as Text (intercalate, unpack)
 import Data.Verbosity qualified as Verbosity (Verbosity(Silent))
 import Database.SQLite.Simple qualified as SQLite (withConnection)
-import Network.Wreq (get, responseBody)
+import Network.Wreq qualified as Wreq (get, responseBody, )
 import System.Directory
     ( createDirectoryIfMissing
     , doesFileExist
@@ -75,9 +83,10 @@ import System.IO.Temp (withTempDirectory, withTempFile)
 import Tldr qualified (renderPage)
 import Tldr.Types qualified as Tldr (ColorSetting({-NoColor,-} UseColor))
 
+import Data.List.Compat (List, )
 import TldrClient.Configuration
-    ( Configuration(Configuration, sources, verbosity, prefixes)
-    , Source(Source, format, location, name)
+    ( Configuration(sources, verbosity, prefixes)
+    , Source(format, location, name)
     , SourceLocation(Local, Remote)
     , SourceFormat(TldrPagesWithIndex, TldrPagesWithoutIndex)
     , getCacheDirectory
@@ -108,16 +117,49 @@ import TldrClient.TldrPagesIndex qualified as TldrPagesIndex
 
 
 data Action
-    = Render (Maybe (SomePlatform Text)) (Maybe Locale) [Text] [String]
-    | List (Maybe (SomePlatform Text)) (Maybe Locale) [Text]
-    | Update [Text]
-    | ClearCache (Maybe (SomePlatform Text)) (Maybe Locale) [Text]
+    = Render RenderParams
+    -- ^ Render a tldr page for a specific command and other attributes, see
+    -- `RenderParams` for details.
+    | List ListParams
+    -- ^ List tldr pages based on the filter, see `ListParams` for details.
+    | Update UpdateParams
+    -- ^ Update local cache
+    | ClearCache ClearCeacheParams
+  deriving stock (Eq, Show)
+
+data RenderParams = RenderParams
+    { platformOverride :: Maybe (SomePlatform Text)
+    , localeOverride :: Maybe Locale
+    , sourcesOverride :: List Text
+    , command :: String
+    -- ^ Command to list tldr page for.
+    }
+  deriving stock (Eq, Show)
+
+data ListParams = ListParams
+    { platformOverride :: Maybe (SomePlatform Text)
+    , localeOverride :: Maybe Locale
+    , sourcesOverride :: List Text
+    }
+  deriving stock (Eq, Show)
+
+data UpdateParams = UpdateParams
+    { sourcesOverride :: List Text
+    }
+  deriving stock (Eq, Show)
+
+data ClearCeacheParams = ClearCeacheParams
+    { platformOverride :: Maybe (SomePlatform Text)
+    , localeOverride :: Maybe Locale
+    , sourcesOverride :: List Text
+    }
   deriving stock (Eq, Show)
 
 data InputOutput = InputOutput
     { errorOutput :: Handle
     , standardOutput :: Handle
     }
+  deriving stock (Eq, Show)
 
 client :: Configuration -> InputOutput -> Action -> IO ()
 client config inputOutput action = do
@@ -132,8 +174,7 @@ client config inputOutput action = do
     putDebugLn config errorOutput ("Index file: " <> indexFile)
 
     case action of
-        Render platformOverride localeOverride sourcesOverride commands -> do
-            let command = List.intercalate "-" commands
+        Render RenderParams{..} -> do
             locales <- getLocales config errorOutput localeOverride
             entries <- SQLite.withConnection indexFile \connection -> do
                 let doLookup prefix = do
@@ -150,11 +191,11 @@ client config inputOutput action = do
                         putDebugLn config errorOutput ("Query: " <> show query)
                         Index.lookup connection query
 
-                if null prefixes
+                if null config.prefixes
                     then
                         doLookup ""
                     else
-                        concat <$> for prefixes \prefix ->
+                        concat <$> for config.prefixes \prefix ->
                             doLookup (prefix <> "-")
 
             putDebugLn config errorOutput "Entries that were found:"
@@ -169,7 +210,7 @@ client config inputOutput action = do
                 Just entry ->
                     renderEntry config inputOutput cacheDirectory entry
 
-        List platformOverride localeOverride sourcesOverride -> do
+        List ListParams{..} -> do
             locales <- getLocales config errorOutput localeOverride
             entries <- SQLite.withConnection indexFile \connection -> do
                 let doList prefix = do
@@ -186,11 +227,11 @@ client config inputOutput action = do
                         putDebugLn config errorOutput ("Query: " <> show query)
                         Index.list connection query
 
-                if null prefixes
+                if null config.prefixes
                     then
                         doList ""
                     else
-                        concat <$> for prefixes \prefix ->
+                        concat <$> for config.prefixes \prefix ->
                             doList (prefix <> "-")
 
             for_ entries \entry -> do
@@ -211,13 +252,13 @@ client config inputOutput action = do
                                 <> " (cache only)"
                         in  Text.unpack source <> ": " <> path
 
-        Update sourcesOverride -> do
-            let sourcesToFetch :: [Source]
+        Update UpdateParams{..} -> do
+            let sourcesToFetch :: List Source
                 sourcesToFetch = if null sourcesOverride
-                    then NonEmpty.toList sources
+                    then NonEmpty.toList config.sources
                     else List.filter
-                            (\Source{name} -> name `List.elem` sourcesOverride)
-                            (NonEmpty.toList sources)
+                            (\s -> s.name `List.elem` sourcesOverride)
+                            (NonEmpty.toList config.sources)
 
                 -- If `sourcesOverride` has been specified we need to check
                 -- that they all match with what we have in configuration.
@@ -231,8 +272,8 @@ client config inputOutput action = do
                     && length sourcesToFetch /= length sourcesOverride
 
             when haveSpecifiedUnknownSource do
-                let sourceNames :: [Text]
-                    sourceNames = sourcesToFetch <&> \Source{name} -> name
+                let sourceNames :: List Text
+                    sourceNames = sourcesToFetch <&> (.name)
 
                     unknownSources :: String
                     unknownSources =
@@ -251,7 +292,7 @@ client config inputOutput action = do
                 let sourceNames :: String
                     sourceNames =
                         Text.unpack . Text.intercalate ", "
-                        $ NonEmpty.toList sources <&> \Source{name} -> name
+                        $ NonEmpty.toList config.sources <&> (.name)
 
                 putErrorLn config errorOutput
                     ( "No known (configured) page source was specified on the\
@@ -262,20 +303,30 @@ client config inputOutput action = do
 
             -- TODO: Purge sources that do not exist in configuration anymore.
 
-            for_ sourcesToFetch \source@Source{name} -> do
-                when (verbosity > Verbosity.Silent) do
+            updateResults <- for sourcesToFetch \source -> do
+                when (config.verbosity > Verbosity.Silent) do
                     hPutStrLn standardOutput
-                        ("Updating '" <> Text.unpack name <> "'…")
-                updateCache inputOutput UpdateCacheParams
-                  { config
-                  , cacheDirectory
-                  , indexFile
-                  , source
-                  }
-                when (verbosity > Verbosity.Silent) do
-                    hPutStrLn standardOutput "… done."
+                        ("Updating '" <> Text.unpack source.name <> "'…")
+                updateWasSuccessful <- updateCache inputOutput UpdateCacheParams
+                    { config
+                    , cacheDirectory
+                    , indexFile
+                    , source
+                    }
+                when (config.verbosity > Verbosity.Silent) do
+                    hPutStrLn standardOutput
+                        if updateWasSuccessful
+                            then "… done."
+                            else "… failed."
+                pure updateWasSuccessful
 
-        ClearCache platformOverride localeOverride sourcesOverride -> do
+            let thereWasAnUpdateError = not (and updateResults)
+            when thereWasAnUpdateError do
+                putErrorLn config errorOutput
+                    "One or more sources failed to update; exit(1)."
+                exitFailure
+
+        ClearCache ClearCeacheParams{..} -> do
             locales <- getLocales config errorOutput localeOverride
             let query = Index.PruneQuery
                     { sources =
@@ -290,7 +341,6 @@ client config inputOutput action = do
             SQLite.withConnection indexFile \connection ->
                 Index.prune connection query
   where
-    Configuration{sources, verbosity, prefixes} = config
     InputOutput{errorOutput, standardOutput} = inputOutput
 
 data FailedToLoadTldrPagesIndex = FailedToLoadTldrPagesIndex
@@ -312,73 +362,99 @@ data UpdateCacheParams = UpdateCacheParams
     , source :: Source
     }
 
-updateCache :: InputOutput -> UpdateCacheParams -> IO ()
+-- | Update offline cache and index. Return value indicates if the process was
+-- successful or not:
+--
+-- * `False` — Failed to update offline cache, usually because we failed to
+--   download the remote file or unpack it.
+--
+-- * `True` — Successfully updated offline cache.
+updateCache :: InputOutput -> UpdateCacheParams -> IO Bool
+updateCache InputOutput{errorOutput, standardOutput} UpdateCacheParams{..} =
+    case source.location of
+        Local dir -> do
+            when (config.verbosity > Verbosity.Silent) do
+                hPutStr standardOutput ("  Indexing '" <> dir <> "'… ")
+                hFlush standardOutput
 
-updateCache
-  InputOutput{standardOutput}
-  UpdateCacheParams
-    { config = Configuration{verbosity}
-    , indexFile
-    , source = Source{name, format, location = Local dir}
-    } = do
-    when (verbosity > Verbosity.Silent) do
-        hPutStr standardOutput ("  Indexing '" <> dir <> "'… ")
-        hFlush standardOutput
+            r <- try do
+                -- TODO: Detect if the target is an archive and unpack it
+                -- first.
+                indexSource
+                    IndexSourceParams
+                        { indexFile
+                        , source = source.name
+                        , format = source.format
+                        , dir
+                        }
+            case r :: Either SomeException () of
+                Left _ -> False <$ do
+                    when (config.verbosity > Verbosity.Silent) do
+                        hPutStrLn standardOutput "failed"
 
-    indexSource IndexSourceParams{indexFile, source = name, format, dir}
-        `onException` when (verbosity > Verbosity.Silent) do
-            hPutStrLn standardOutput "failed"
+                Right () -> True <$ do
+                    when (config.verbosity > Verbosity.Silent) do
+                        hPutStrLn standardOutput "success"
 
-    when (verbosity > Verbosity.Silent) do
-        hPutStrLn standardOutput "success"
+        Remote urls -> do
+            let sourceName :: String
+                sourceName = Text.unpack source.name
 
-updateCache
-  InputOutput{errorOutput, standardOutput}
-  UpdateCacheParams
-    { config = config@Configuration{verbosity}
-    , cacheDirectory
-    , indexFile
-    , source = Source{name, format, location = Remote urls}
-    } =
-  do
-    putDebugLn config errorOutput
-        ("Target directory for '" <> sourceName <> "': " <> targetDir)
+                targetDir :: FilePath
+                targetDir = cacheDirectory </> sourceName
 
-    withTempDirectory cacheDirectory sourceName \dir -> do
-        when (verbosity > Verbosity.Silent) do
-            hPutStr standardOutput
-                ("  Downloading '" <> sourceName <> "' (" <> url <> ")… ")
-            hFlush standardOutput
+            putDebugLn config errorOutput
+                ("Target directory for '" <> sourceName <> "': " <> targetDir)
 
-        -- TODO: At the moment we only try the primary URL, however, we should
-        -- try the mirrors if we fail to download the primary URL.
-        httpResponse <- try (get url)
-        case httpResponse of
-            Left e -> do
-                when (verbosity > Verbosity.Silent) do
-                    hPutStrLn standardOutput "failed"
-                putErrorLn config errorOutput
-                    ( "Download of " <> url <> " failed with: "
-                    <> displayException @SomeException e
-                    )
-
-            Right (view responseBody -> body) -> do
-                when (verbosity > Verbosity.Silent) do
-                    hPutStrLn standardOutput "success"
-
-                unpackAndIndex body dir
+            withTempDirectory cacheDirectory sourceName \dir ->
+                downloadThenUnpackAndIndex sourceName targetDir dir
+                    (NonEmpty.toList urls)
   where
-    sourceName :: String
-    sourceName = Text.unpack name
+    downloadThenUnpackAndIndex
+        :: String
+        -> FilePath
+        -> FilePath
+        -> List String
+        -> IO Bool
+    downloadThenUnpackAndIndex sourceName targetDir dir = loop
+      where
+        loop = \case
+            [] -> pure False
+            url : mirrors -> do
+                when (config.verbosity > Verbosity.Silent) do
+                    hPutStr standardOutput
+                        ( "  Downloading '" <> sourceName
+                        <> "' (" <> url <> ")… "
+                        )
+                    hFlush standardOutput
 
-    targetDir :: FilePath
-    targetDir = cacheDirectory </> sourceName
+                httpResponse <- try (Wreq.get url)
+                case httpResponse of
+                    Left e -> do
+                        when (config.verbosity > Verbosity.Silent) do
+                            hPutStrLn standardOutput "failed"
+                        putErrorLn config errorOutput
+                            ( "Download of " <> url <> " failed with: "
+                            <> displayException @SomeException e
+                            )
 
-    url :: String
-    url = NonEmpty.head urls
+                        loop mirrors
 
-    unpackAndIndex body dir = do
-        when (verbosity > Verbosity.Silent) do
+                    Right (view Wreq.responseBody -> body) -> do
+                        when (config.verbosity > Verbosity.Silent) do
+                            hPutStrLn standardOutput "success"
+
+                        unpackAndIndex sourceName targetDir url dir body
+
+    unpackAndIndex
+        :: String
+        -> FilePath
+        -> String
+        -> FilePath
+        -> Lazy.ByteString
+        -> IO Bool
+    unpackAndIndex sourceName targetDir url dir body = do
+        when (config.verbosity > Verbosity.Silent) do
             hPutStr standardOutput
                 ( "  Unpacking and indexing '" <> sourceName
                 <> "' (may take a while)… "
@@ -390,8 +466,8 @@ updateCache
 
             indexSource IndexSourceParams
                 { indexFile
-                , source = name
-                , format
+                , source = source.name
+                , format = source.format
                 , dir
                 }
 
@@ -400,16 +476,16 @@ updateCache
             -- it around?
             renameDirectory dir targetDir
         case r of
-            Left e -> do
-                when (verbosity > Verbosity.Silent) do
+            Left e -> False <$ do
+                when (config.verbosity > Verbosity.Silent) do
                     hPutStrLn standardOutput "failed"
                 putErrorLn config errorOutput
                     ( "Unpacking of " <> url <> " failed with: "
                     <> displayException @SomeException e
                     )
 
-            Right _ -> do
-                when (verbosity > Verbosity.Silent) do
+            Right _ -> True <$ do
+                when (config.verbosity > Verbosity.Silent) do
                     hPutStrLn standardOutput "success"
 
 -- | Get list of platforms to be searched when looking up a page.
@@ -511,8 +587,8 @@ indexSource IndexSourceParams{..} =
 
 missingPageMessage :: Configuration -> InputOutput -> String -> IO ()
 missingPageMessage config inputOutput command =
-    when (verbosity > Verbosity.Silent) do
-        hPutStr standardOutput $ unlines
+    when (config.verbosity > Verbosity.Silent) do
+        hPutStr inputOutput.standardOutput $ unlines
             [ "Unable to find page for command '" <> command <> "'"
             , ""
             , "Possible reasons why this may have had happened:"
@@ -536,9 +612,6 @@ missingPageMessage config inputOutput command =
               \ manual page for more information."
             ]
   where
-    Configuration{verbosity} = config
-    InputOutput{standardOutput} = inputOutput
-
     requestPageUrl :: String
     requestPageUrl =
         "https://github.com/tldr-pages/tldr/issues/new?title=page%20request:%20"

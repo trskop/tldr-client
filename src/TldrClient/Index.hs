@@ -1,7 +1,7 @@
 -- |
 -- Module:      TldrClient.Index
 -- Description: Local cache in the form of SQLite database
--- Copyright:   (c) 2021-2023 Peter Trško
+-- Copyright:   (c) 2021-2024 Peter Trško
 -- License:     BSD3
 --
 -- Maintainer:  peter.trsko@gmail.com
@@ -69,6 +69,8 @@ import Database.SQLite.Simple qualified as SQLite
 import System.Directory (doesFileExist)
 import System.FilePath ((</>))
 
+import Data.List.Compat (List, )
+
 
 data Entry = Entry
     { source :: Text
@@ -87,7 +89,7 @@ instance SQLite.FromRow Entry where
         pure Entry{..}
 
 instance SQLite.ToRow Entry where
-    toRow :: Entry -> [SQLite.SQLData]
+    toRow :: Entry -> List SQLite.SQLData
     toRow Entry{..} =
         [ SQLite.toField source
         , SQLite.toField command
@@ -121,7 +123,7 @@ getIndexFile cacheDirectory = liftIO do
         then Just file
         else Nothing
 
-load :: MonadIO m => SQLite.Connection -> [Entry] -> m ()
+load :: MonadIO m => SQLite.Connection -> List Entry -> m ()
 load connection entries = liftIO do
     SQLite.executeMany connection
         "INSERT INTO\

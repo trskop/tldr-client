@@ -44,13 +44,14 @@ default-extensions:
   - FlexibleContexts
   - FlexibleInstances
   - GeneralizedNewtypeDeriving
-  - ImportQualifiedPost # GHC >8.10
+  - ImportQualifiedPost # GHC ≥8.10
   - InstanceSigs
   - LambdaCase
   - MultiParamTypeClasses
   - MultiWayIf
   - NamedFieldPuns
   - NoImplicitPrelude
+  - OverloadedRecordDot # GHC ≥9.2
   - OverloadedStrings
   - PatternSynonyms
   - PolyKinds

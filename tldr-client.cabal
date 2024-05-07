@@ -43,6 +43,7 @@ library
   exposed-modules:
       Data.CountryCodes
       Data.LanguageCodes.Extended
+      Data.List.Compat
       Dhall.Marshal.Decode.Extended
       TldrClient.Client
       TldrClient.Configuration
@@ -76,6 +77,7 @@ library
       MultiWayIf
       NamedFieldPuns
       NoImplicitPrelude
+      OverloadedRecordDot
       OverloadedStrings
       PatternSynonyms
       PolyKinds
@@ -147,6 +149,7 @@ executable command-wrapper-tldr
       MultiWayIf
       NamedFieldPuns
       NoImplicitPrelude
+      OverloadedRecordDot
       OverloadedStrings
       PatternSynonyms
       PolyKinds
@@ -205,6 +208,7 @@ executable tldr
       MultiWayIf
       NamedFieldPuns
       NoImplicitPrelude
+      OverloadedRecordDot
       OverloadedStrings
       PatternSynonyms
       PolyKinds
@@ -262,6 +266,7 @@ test-suite tldr-client-unit-tests
       MultiWayIf
       NamedFieldPuns
       NoImplicitPrelude
+      OverloadedRecordDot
       OverloadedStrings
       PatternSynonyms
       PolyKinds

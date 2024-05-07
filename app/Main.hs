@@ -16,6 +16,7 @@ module Main
 
 import Control.Applicative (pure)
 import Control.Monad (when)
+import Data.Bool (Bool(True))
 import Data.Function (($))
 import Data.Functor ((<$>))
 import Data.Maybe (Maybe(Nothing), fromMaybe)
@@ -58,7 +59,8 @@ main :: IO ()
 main = do
     env@Environment{..} <- parseEnvironment inputOutput
     when (verbosity >= Verbosity.Annoying) do
-        hPutStrLn errorOutput (programName <> ": Debug: " <> show env)
+        hPutStrLn inputOutput.errorOutput
+            (programName <> ": Debug: " <> show env)
     (config, action) <- Options.parse Options.Params
         { version
         , colourOutput
@@ -68,13 +70,13 @@ main = do
         , configurationExpression
         , decoder = decodeStandaloneConfiguration
         , encoder = show -- TODO
-        , mkDefault = mkDefConfiguration Nothing
+        , mkDefault = mkDefConfiguration True{-is standalone app-} Nothing
         , runCompletion = Options.completer version
         , inputOutput
         }
     client config inputOutput action
   where
-    inputOutput@InputOutput{errorOutput} = InputOutput
+    inputOutput = InputOutput
         { errorOutput = stderr
         , standardOutput = stdout
         }
@@ -91,7 +93,7 @@ data Environment = Environment
 parseEnvironment :: InputOutput -> IO Environment
 parseEnvironment InputOutput{errorOutput} = do
     programName <- getProgName
-    env@Environment{configFile} <- parseEnvIO () (dieEnvError programName) do
+    env <- parseEnvIO () (dieEnvError programName) do
         colourOutput <- fromMaybe ColourOutput.Auto <$> do
             ColourOutput.noColorEnvVar
         configurationExpression <- optionalVar "TLDR_CONFIG"
@@ -101,7 +103,7 @@ parseEnvironment InputOutput{errorOutput} = do
             , ..
             }
 
-    absoluteConfigFile <- getXdgDirectory XdgConfig configFile
+    absoluteConfigFile <- getXdgDirectory XdgConfig env.configFile
     pure env{configFile = absoluteConfigFile}
   where
     dieEnvError :: String -> ParseEnvError -> IO a

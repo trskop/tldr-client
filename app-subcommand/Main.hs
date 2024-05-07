@@ -18,7 +18,7 @@ import Prelude (maxBound, minBound)
 
 import Control.Applicative (pure)
 import Control.Monad (guard, when)
-import Data.Bool (not)
+import Data.Bool (Bool(False), not)
 import Data.Char qualified as Char (toLower)
 import Data.Foldable (elem)
 import Data.Function (($), (.))
@@ -51,7 +51,7 @@ import System.FilePath ((<.>), (</>))
 
 import TldrClient.Client (InputOutput(..), client)
 import TldrClient.Configuration
-    ( Configuration(Configuration, prefixes)
+    ( Configuration(prefixes)
     , Source(Source, format, location, name)
     , SourceFormat(TldrPagesWithoutIndex)
     , SourceLocation(Local)
@@ -74,7 +74,7 @@ main = do
     let toolset = Text.unpack toolsetName
         subcommand = Text.unpack subcommandName
     when (verbosity >= Verbosity.Annoying) do
-        hPutStrLn errorOutput
+        hPutStrLn inputOutput.errorOutput
             (toolset <> " " <> subcommand <> ": Debug: " <> show env)
     (config, action) <- Options.parse Options.Params
         { version
@@ -85,29 +85,30 @@ main = do
         , configurationExpression
         , decoder = decodeSubcommandConfiguration verbosity colourOutput
         , encoder = show -- TODO
-        , mkDefault = mkDefConfiguration $ Just Source
-            { name = toolsetName <> "-pages"
-            , format = TldrPagesWithoutIndex
-            , location =
-                Local (dataDirectory </> "tldr" </> "pages" </> toolset)
-            }
+        , mkDefault =
+            mkDefConfiguration False{-is not standalone app-} $ Just Source
+                { name = toolsetName <> "-pages"
+                , format = TldrPagesWithoutIndex
+                , location =
+                    Local (dataDirectory </> "tldr" </> "pages" </> toolset)
+                }
         , runCompletion =
             Options.completer version . updatePrefixes toolsetName
         , inputOutput
         }
     client (updatePrefixes toolsetName config) inputOutput action
   where
-    inputOutput@InputOutput{errorOutput} = InputOutput
+    inputOutput = InputOutput
         { errorOutput = stderr
         , standardOutput = stdout
         }
 
 updatePrefixes :: Text -> Configuration -> Configuration
-updatePrefixes toolsetName cfg@Configuration{prefixes} = cfg
+updatePrefixes toolsetName config = config
     { prefixes =
-        if toolsetName `elem` prefixes
-            then prefixes
-            else prefixes <> [toolsetName]
+        if toolsetName `elem` config.prefixes
+            then config.prefixes
+            else config.prefixes <> [toolsetName]
     }
 
 data Environment = Environment
@@ -126,7 +127,7 @@ data Environment = Environment
 parseEnvironment :: InputOutput -> IO Environment
 parseEnvironment InputOutput{errorOutput} = do
     dataDirectory <- getXdgDirectory XdgData ""
-    env@Environment{configFile} <- parseEnvIO () dieEnvError do
+    env <- parseEnvIO () dieEnvError do
         toolsetExe <- Text.unpack <$> nonEmptyVar "COMMAND_WRAPPER_EXE"
         protocolVersion <- nonEmptyVar "COMMAND_WRAPPER_VERSION"
         toolsetName <- nonEmptyVar "COMMAND_WRAPPER_NAME"
@@ -157,7 +158,7 @@ parseEnvironment InputOutput{errorOutput} = do
             , ..
             }
 
-    absoluteConfigFile <- getXdgDirectory XdgConfig configFile
+    absoluteConfigFile <- getXdgDirectory XdgConfig env.configFile
     pure env{configFile = absoluteConfigFile}
   where
     dieEnvError :: ParseEnvError -> IO a

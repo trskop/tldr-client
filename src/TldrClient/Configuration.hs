@@ -30,7 +30,7 @@ module TldrClient.Configuration
 
 import Control.Applicative ((<|>), pure)
 import Control.Monad (when)
-import Data.Bool (Bool(False))
+import Data.Bool (Bool(False, True))
 import Data.Eq (Eq)
 import Data.Function ((.))
 import Data.Functor ((<$>))
@@ -76,6 +76,7 @@ import System.Console.Terminfo (setupTermFromEnv)
 import System.Directory (XdgDirectory(XdgCache), getXdgDirectory)
 import System.Environment.Parser (ParseEnvError(..), parseEnvIO)
 
+import Data.List.Compat (List, )
 import TldrClient.Locale (Locale, )
 import TldrClient.Locale qualified as Locale (decode, languagePreference, )
 
@@ -98,11 +99,20 @@ data Configuration = Configuration
     -- the time of execution.
     , sources :: NonEmpty Source
     -- ^ List of sources of pages. See `Source` for details.
-    , prefixes :: [Text]
+    , prefixes :: List Text
     -- ^ Restrict operations to specific command prefixes. If empty, then there
     -- is no restriction.
     --
     -- > ${prefix}-${command}
+    , isStandalone :: Bool
+    -- ^ Is the tldr client a standalone application or a Command Wrapper
+    -- subcommand?
+    --
+    -- * `True` — the tldr client is a standalone application and not a Command
+    --   Wrapper subcommand
+    --
+    -- * `False` — the tldr client is a Command Wrapper subcommand and not a
+    --   standalone application
     }
   deriving stock (Eq, Show)
 
@@ -115,6 +125,7 @@ decodeStandaloneConfiguration programName = Dhall.record do
     sources <- Dhall.field "sources" (decodeNonEmpty decodeSource)
     pure Configuration
         { prefixes = []
+        , isStandalone = True
         , ..
         }
 
@@ -131,6 +142,7 @@ decodeSubcommandConfiguration verbosity colourOutput programName =
         prefixes <- Dhall.field "prefixes" (decodeNonEmpty Dhall.auto)
         pure Configuration
             { prefixes = NonEmpty.toList prefixes
+            , isStandalone = False
             , ..
             }
 
@@ -207,12 +219,14 @@ getLocales config@Configuration{locale} errorOutput override = maybe
         exitFailure
 
 mkDefConfiguration
-    :: Maybe Source
+    :: Bool
+    -> Maybe Source
     -> Verbosity
     -> ColourOutput
     -> String
     -> IO Configuration
-mkDefConfiguration possiblySource verbosity colourOutput programName =
+mkDefConfiguration isStandalone possiblySource verbosity colourOutput
+  programName =
     pure Configuration
         { programName
         , verbosity
@@ -221,6 +235,7 @@ mkDefConfiguration possiblySource verbosity colourOutput programName =
         , locale = Nothing -- Use locale environment variables, see `getLocales`.
         , sources = pure (fromMaybe tldrPagesOfficialSource possiblySource)
         , prefixes = []
+        , isStandalone
         }
   where
     tldrPagesOfficialSource :: Source
