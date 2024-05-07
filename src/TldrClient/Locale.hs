@@ -13,12 +13,12 @@ module TldrClient.Locale
     (
     -- * Index
       Locale(..)
-    , parseLocale
-    , localeToText
+    , parse
+    , toText
     , defaultLocale
 
     -- * Dhall Encoding
-    , decodeLocale
+    , decode
 
     -- * Locale Environment Variables
     , parseLocaleEnv
@@ -78,31 +78,31 @@ data Locale = Locale
     }
   deriving stock (Eq, Generic, Show)
 
-decodeLocale :: Dhall.Decoder Locale
-decodeLocale = Dhall.record do
+decode :: Dhall.Decoder Locale
+decode = Dhall.record do
     language <- Dhall.field "language" LanguageCode.decode
     country <- Dhall.field "country" (Dhall.maybe CountryCode.decode)
     pure Locale{..}
 
 instance FromJSON Locale where
     parseJSON :: Aeson.Value -> Aeson.Parser Locale
-    parseJSON = Aeson.withText "Locale" (either fail pure . parseLocale)
+    parseJSON = Aeson.withText "Locale" (either fail pure . parse)
 
 instance ToJSON Locale where
     toJSON :: Locale -> Aeson.Value
-    toJSON = toJSON . localeToText
+    toJSON = toJSON . toText
 
     toEncoding :: Locale -> Aeson.Encoding
-    toEncoding = toEncoding . localeToText
+    toEncoding = toEncoding . toText
 
-localeToText :: Locale -> Text
-localeToText Locale{..} =
+toText :: Locale -> Text
+toText Locale{..} =
     LanguageCode.toString language
     <> maybe "" (\c -> "_" <> CountryCode.toString c) country
 
 -- | Parse text value in @ll[_CC]@ format into a `Locale`.
-parseLocale :: Text -> Either String Locale
-parseLocale t = do
+parse :: Text -> Either String Locale
+parse t = do
     -- Split `LL[_CC]` into a `LL` and optionally `CC` portion.
     (languageText, possiblyCountryText) <- do
         let -- Few examples of what this does:
@@ -174,7 +174,7 @@ parseLocaleEnv s
         pure (Just defaultLocale)
 
   | otherwise =
-        Just <$> parseLocale s'
+        Just <$> parse s'
   where
     s' = Text.takeWhile (\c -> c /= '.' && c /= '@') s
 

@@ -12,10 +12,7 @@
 module TldrClient.Client
     ( client
     , Action(..)
-    , SomePlatform(..)
-    , Platform(..)
     , InputOutput(..)
-    , parsePlatform
     )
   where
 
@@ -29,7 +26,6 @@ import Control.Exception
     )
 import Control.Monad (when)
 import Data.Bool (Bool(True), (&&), not)
-import Data.Char qualified as Char (toLower)
 import Data.Either (Either(Left, Right))
 import Data.Eq (Eq, (/=))
 import Data.Foldable (concat, for_, length, null)
@@ -53,7 +49,6 @@ import System.IO
     , hPutStr
     , hPutStrLn
     )
-import System.Info (os)
 import Text.Show (Show, show)
 
 import Codec.Archive.Zip qualified as Zip
@@ -63,7 +58,6 @@ import Codec.Archive.Zip qualified as Zip
     )
 import Control.Lens (view)
 import Data.ByteString qualified as ByteString (hPutStr)
-import Data.CaseInsensitive qualified as CI (mk)
 --import qualified Data.Output.Colour as ColourOutput (ColourOutput(Auto))
 import Data.Text (Text)
 import Data.Text qualified as Text (intercalate, unpack)
@@ -103,7 +97,10 @@ import TldrClient.Index qualified as Index
     , newUnlessExists
     , prune
     )
-import TldrClient.Locale (Locale(..), localeToText)
+import TldrClient.Locale (Locale(..), )
+import TldrClient.Locale qualified as Locale (toText, )
+import TldrClient.Platform (SomePlatform(..), )
+import TldrClient.Platform qualified as Platform
 import TldrClient.TldrPagesIndex qualified as TldrPagesIndex
     ( indexAndLoad
     , load
@@ -111,40 +108,11 @@ import TldrClient.TldrPagesIndex qualified as TldrPagesIndex
 
 
 data Action
-    = Render (Maybe SomePlatform) (Maybe Locale) [Text] [String]
-    | List (Maybe SomePlatform) (Maybe Locale) [Text]
+    = Render (Maybe (SomePlatform Text)) (Maybe Locale) [Text] [String]
+    | List (Maybe (SomePlatform Text)) (Maybe Locale) [Text]
     | Update [Text]
-    | ClearCache (Maybe SomePlatform) (Maybe Locale) [Text]
+    | ClearCache (Maybe (SomePlatform Text)) (Maybe Locale) [Text]
   deriving stock (Eq, Show)
-
-data SomePlatform
-    = AllPlatforms
-    | KnownPlatform Platform
-    | OtherPlatform String
-  deriving stock (Eq, Show)
-
--- | List of platforms as they are currently supported by tldr-pages, see
--- [github.com/tldr-pages/tldr](https://github.com/tldr-pages/tldr).
-data Platform
-    = Android
-    | Linux
-    | Osx
-    | Sunos
-    | Windows
-  deriving stock (Eq, Show)
-
-parsePlatform :: String -> Either String SomePlatform
-parsePlatform s = case CI.mk s of
-    "all" -> Right AllPlatforms
-    "android" -> Right (KnownPlatform Android)
-    "linux" -> Right (KnownPlatform Linux)
-    "macos" -> Right (KnownPlatform Osx)
-    "osx" -> Right (KnownPlatform Osx)
-    "sunos" -> Right (KnownPlatform Sunos)
-    "windows" -> Right (KnownPlatform Windows)
-    _ ->
-        -- TODO: Should there be some kind of restriction on the name?
-        Right (OtherPlatform (Char.toLower <$> s))
 
 data InputOutput = InputOutput
     { errorOutput :: Handle
@@ -176,7 +144,7 @@ client config inputOutput action = do
                                     -- (be configured) and we should check it
                                     -- to git better error message.
                                     nonEmpty sourcesOverride
-                                , locales = Just (localeToText <$> locales)
+                                , locales = Just (Locale.toText <$> locales)
                                 , platforms = getPlatforms platformOverride
                                 }
                         putDebugLn config errorOutput ("Query: " <> show query)
@@ -211,7 +179,7 @@ client config inputOutput action = do
                                     -- (be configured) and we should check it
                                     -- to git better error message.
                                     nonEmpty sourcesOverride
-                                , locales = Just (localeToText <$> locales)
+                                , locales = Just (Locale.toText <$> locales)
                                 , platforms = getPlatforms platformOverride
                                 , prefix
                                 }
@@ -315,7 +283,7 @@ client config inputOutput action = do
                         -- configured) and we should check it to git better
                         -- error message.
                         nonEmpty sourcesOverride
-                    , locales = Just (localeToText <$> locales)
+                    , locales = Just (Locale.toText <$> locales)
                     , platforms = getPlatforms platformOverride
                     }
             putDebugLn config errorOutput ("Query: " <> show query)
@@ -444,29 +412,43 @@ updateCache
                 when (verbosity > Verbosity.Silent) do
                     hPutStrLn standardOutput "success"
 
-currentPlatform :: SomePlatform
-currentPlatform = case CI.mk os of
-    "darwin" -> KnownPlatform Osx
-    "linux" -> KnownPlatform Linux
-    "linux-android" -> KnownPlatform Android
-    "mingw32" -> KnownPlatform Windows
-    _ -> OtherPlatform (Char.toLower <$> os)
-
-getPlatforms :: Maybe SomePlatform -> Maybe (NonEmpty Text)
+-- | Get list of platforms to be searched when looking up a page.
+getPlatforms
+    :: Maybe (SomePlatform Text)
+    -- ^ Override current platform.
+    --
+    -- * `Nothing` — use current platform, see `Platfrom.current` for more
+    --   information.
+    --
+    -- * @`Just` p@ — use specified platform @p@ instead of current platform.
+    -> Maybe (NonEmpty Text)
+    -- ^ Platform filter for when we are looking up a page.
+    --
+    -- * `Nothing` — we are not filtering by platform at all, i.e. all pages
+    --   for all platforms will be searched when looking up a page.
+    --
+    -- * @`Just` ps@ — only platfroms listed in @ps@ will be used when
+    --   searching for a page.
 getPlatforms platformOverride =
-    case fromMaybe currentPlatform platformOverride of
+    case fromMaybe Platform.current platformOverride of
         AllPlatforms ->
             Nothing
 
+        -- Be aware that the \"tldr pages\" project is planning to move from
+        -- @osx@ to @macos@ some time in the future. For that reason we are now
+        -- supporting both with preference for @osx@.
         KnownPlatform p -> Just case p of
-            Android -> "android" :| ["common"]
-            Linux -> "linux" :| ["common"]
-            Osx -> "osx" :| ["common"]
-            Sunos -> "sunos" :| ["common"]
-            Windows -> "windows" :| ["common"]
+            Platform.Android -> "android" :| ["common"]
+            Platform.Freebsd -> "freebsd" :| ["common"]
+            Platform.Linux   -> "linux"   :| ["common"]
+            Platform.Macos   -> "osx"     :| ["macos", "common"]
+            Platform.Netbsd  -> "netbsd"  :| ["common"]
+            Platform.Openbsd -> "openbsd" :| ["common"]
+            Platform.Sunos   -> "sunos"   :| ["common"]
+            Platform.Windows -> "windows" :| ["common"]
 
         OtherPlatform p ->
-            Just (fromString p :| ["common"])
+            Just (p :| ["common"])
 
 renderEntry :: Configuration -> InputOutput -> FilePath -> Index.Entry -> IO ()
 renderEntry config InputOutput{..} cacheDirectory Index.Entry{..} =

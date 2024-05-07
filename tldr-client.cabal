@@ -49,6 +49,7 @@ library
       TldrClient.Index
       TldrClient.Locale
       TldrClient.Options
+      TldrClient.Platform
       TldrClient.TldrPagesIndex
       TldrClient.Version
   other-modules:

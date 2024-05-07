@@ -76,7 +76,8 @@ import System.Console.Terminfo (setupTermFromEnv)
 import System.Directory (XdgDirectory(XdgCache), getXdgDirectory)
 import System.Environment.Parser (ParseEnvError(..), parseEnvIO)
 
-import TldrClient.Locale (Locale, decodeLocale, languagePreference)
+import TldrClient.Locale (Locale, )
+import TldrClient.Locale qualified as Locale (decode, languagePreference, )
 
 
 data Configuration = Configuration
@@ -110,7 +111,7 @@ decodeStandaloneConfiguration programName = Dhall.record do
     verbosity <- Dhall.field "verbosity" Dhall.auto
     colourOutput <- Dhall.field "colourOutput" Dhall.auto
     cacheDirectory <- Dhall.field "cacheDirectory" Dhall.auto
-    locale <- Dhall.field "locale" (Dhall.maybe decodeLocale)
+    locale <- Dhall.field "locale" (Dhall.maybe Locale.decode)
     sources <- Dhall.field "sources" (decodeNonEmpty decodeSource)
     pure Configuration
         { prefixes = []
@@ -125,7 +126,7 @@ decodeSubcommandConfiguration
 decodeSubcommandConfiguration verbosity colourOutput programName =
     Dhall.record do
         cacheDirectory <- Dhall.field "cacheDirectory" Dhall.auto
-        locale <- Dhall.field "locale" (Dhall.maybe decodeLocale)
+        locale <- Dhall.field "locale" (Dhall.maybe Locale.decode)
         sources <- Dhall.field "sources" (decodeNonEmpty decodeSource)
         prefixes <- Dhall.field "prefixes" (decodeNonEmpty Dhall.auto)
         pure Configuration
@@ -182,9 +183,9 @@ getCacheDirectory Configuration{cacheDirectory} =
     maybe (getXdgDirectory XdgCache "tldr-client") pure cacheDirectory
 
 getLocales :: Configuration -> Handle -> Maybe Locale -> IO (NonEmpty Locale)
-getLocales config@Configuration{locale} errorOutput override =
-    maybe (parseEnvIO () dieParseEnvError languagePreference) (pure . pure)
-        (override <|> locale)
+getLocales config@Configuration{locale} errorOutput override = maybe
+    (parseEnvIO () dieParseEnvError Locale.languagePreference) (pure . pure)
+    (override <|> locale)
   where
     dieParseEnvError :: ParseEnvError -> IO a
     dieParseEnvError err = do

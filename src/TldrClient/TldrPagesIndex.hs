@@ -54,7 +54,8 @@ import Data.Text qualified as Text (null, unpack)
 import System.Directory (listDirectory)
 import System.FilePath ((<.>), (</>), dropExtension, takeExtension)
 
-import TldrClient.Locale (Locale(..), localeToText)
+import TldrClient.Locale (Locale(..), )
+import TldrClient.Locale qualified as Locale (toText, )
 import TldrClient.Index qualified as Index (Entry(..))
 
 
@@ -88,7 +89,7 @@ data SomeLocale
 
 someLocaleToText :: SomeLocale -> Text
 someLocaleToText = \case
-    KnownLocale l -> localeToText l
+    KnownLocale l -> Locale.toText l
     UnknownLocale t -> t
 
 instance FromJSON SomeLocale where

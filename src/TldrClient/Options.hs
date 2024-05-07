@@ -121,8 +121,6 @@ import System.Directory (doesFileExist)
 import TldrClient.Client
     ( Action(ClearCache, List, Render, Update)
     , InputOutput(InputOutput, errorOutput, standardOutput)
-    , SomePlatform
-    , parsePlatform
     )
 import TldrClient.Configuration
     ( Configuration(Configuration, prefixes, sources)
@@ -136,7 +134,10 @@ import TldrClient.Index qualified as Index
     , getLocales
     , getPlatforms
     )
-import TldrClient.Locale (Locale, parseLocale)
+import TldrClient.Locale (Locale, )
+import TldrClient.Locale qualified as Locale (parse, )
+import TldrClient.Platform (SomePlatform, )
+import TldrClient.Platform qualified as Platform (parse, )
 import TldrClient.Version (VersionInfo(..), prettyVersionInfo)
 
 
@@ -548,7 +549,7 @@ parse Params{..} = do
     renderAction
         :: [String]
         -> Maybe Locale
-        -> Maybe SomePlatform
+        -> Maybe (SomePlatform Text)
         -> [Text]
         -> Maybe Text
         -> Mode
@@ -578,7 +579,7 @@ parse Params{..} = do
 
     listFlag :: Options.Parser
         (  Maybe Locale
-        -> Maybe SomePlatform
+        -> Maybe (SomePlatform Text)
         -> [Text]
         -> Maybe Text
         -> Mode
@@ -593,7 +594,7 @@ parse Params{..} = do
 
     clearCacheFlag :: Options.Parser
         (  Maybe Locale
-        -> Maybe SomePlatform
+        -> Maybe (SomePlatform Text)
         -> [Text]
         -> Maybe Text
         -> Mode
@@ -605,8 +606,9 @@ parse Params{..} = do
         clearCacheAction lang platform sources cfg =
             Execute cfg (ClearCache platform lang sources)
 
-    platformOption :: Options.Parser SomePlatform
-    platformOption = Options.option (Options.eitherReader parsePlatform)
+    platformOption :: Options.Parser (SomePlatform Text)
+    platformOption = Options.option
+        (Options.eitherReader (pure . Platform.parse . fromString))
         ( Options.long "platform"
         <> Options.short 'p'
         <> Options.metavar "PLATFORM"
@@ -614,7 +616,7 @@ parse Params{..} = do
 
     languageOption :: Options.Parser Locale
     languageOption = Options.option
-        (Options.eitherReader (parseLocale . fromString))
+        (Options.eitherReader (Locale.parse . fromString))
         ( Options.long "language"
         <> Options.short 'L'
         <> Options.metavar "LANGUAGE"
