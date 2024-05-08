@@ -24,6 +24,7 @@ import Control.Exception (throwIO)
 import Control.Monad ((>>=), guard)
 import Data.Bool (Bool(False), not, otherwise)
 import Data.Char (Char)
+import Data.Either (Either(Left, Right), )
 import Data.Eq ((==))
 import Data.Foldable (any, concat, foldMap, for_, length, null, sum)
 import Data.Function (($), (.))
@@ -52,7 +53,7 @@ import System.Exit
     , exitSuccess
     , exitWith
     )
-import System.IO (FilePath, Handle, IO, hIsTerminalDevice, hPutStrLn, )
+import System.IO (FilePath, Handle, IO, hIsTerminalDevice, hPutStrLn, stdin, )
 
 import Data.Either.Validation qualified as Validation
     ( Validation(Failure, Success)
@@ -127,6 +128,7 @@ import TldrClient.Client qualified as Client
         ( ClearCache
         , List
         , Render
+        , RenderFile
         , Update
         )
     , ClearCeacheParams
@@ -145,6 +147,10 @@ import TldrClient.Client qualified as Client
         , localeOverride
         , platformOverride
         , sourcesOverride
+        )
+    , RenderFileParams
+        ( RenderFileParams
+        , input
         )
     , RenderParams
         ( RenderParams
@@ -503,8 +509,16 @@ parse Params{..} = do
             , Options.hang 2 $ Options.fillSep
                 [ programName'
                 , Options.braces $ utils.alt
+                    [ utils.opt "render-file" "FILE"
+                    , utils.flag "render-stdin"
+                    ]
+                ]
+            , Options.hang 2 $ Options.fillSep
+                [ programName'
+                , Options.braces $ utils.alt
                     [ utils.flag "config-typecheck"
                     , utils.flag "config-print-type"
+--                  , utils.flag "config-print" -- TODO: Implement properly
                     ]
                 , configDoc
                 ]
@@ -588,6 +602,8 @@ parse Params{..} = do
                         )
                     <*> many sourceOption
                     )
+                <|> renderStdinFlag
+                <|> renderFileOption
                 )
             <*> optional configOption
             )
@@ -606,6 +622,26 @@ parse Params{..} = do
             , platformOverride
             , sourcesOverride
             }
+
+    renderFileAction :: Either Handle FilePath -> Maybe Text -> Mode
+    renderFileAction input cfg =
+        Execute cfg (Client.RenderFile Client.RenderFileParams{input})
+
+    renderStdinFlag :: Options.Parser (Maybe Text -> Mode)
+    renderStdinFlag = Options.flag' (renderFileAction (Left stdin))
+        (Options.long "render-stdin")
+
+    renderFileOption :: Options.Parser (Maybe Text -> Mode)
+    renderFileOption = renderFileAction . Right <$> Options.option
+        (Options.eitherReader parseFile)
+        ( Options.long "render-file"
+        <> Options.metavar "FILE"
+        )
+      where
+        parseFile :: String -> Either String FilePath
+        parseFile s
+          | null s    = Left "FILE must be specified (must be non-empty string)"
+          | otherwise = Right s
 
     configOption :: Options.Parser Text
     configOption = Options.strOption
@@ -861,6 +897,20 @@ parse Params{..} = do
                 ]
             , ""
             , Options.nest 4 $ Options.vsep
+                [ utils.list
+                    [ utils.opt "render-file" "FILE"
+                    , utils.flag "render-stdin"
+                    ]
+                , Options.fillSep
+                    [ utils.paragraph "Render CommonMark"
+                    , utils.metavar "FILE"
+                    , utils.paragraph "or content passed to standard inputas a\
+                        \ tldr page and exit with exit code"
+                    , utils.value "0" <> "."
+                    ]
+                ]
+            , ""
+            , Options.nest 4 $ Options.vsep
                 [ utils.opt "config" "EXPR"
                 , Options.fillSep
                     [ utils.paragraph "Set configuration to"
@@ -886,6 +936,7 @@ parse Params{..} = do
                     , utils.paragraph "on failure to typecheck."
                     ]
                 ]
+-- TODO: Implement properly.
 --          , ""
 --          , Options.nest 4 $ Options.vsep
 --              [ utils.flag "config-print"
@@ -1036,6 +1087,10 @@ completer version config handle _shell index words
             , word = current
             }
 
+  | previous == Just "--render-file" =
+        -- TODO: File completion.
+        pure ()
+
   | Just ('-', _) <- Text.uncons current = if
       | "--platform=" `Text.isPrefixOf` current ->
             completePlatform config handle CompletionQuery
@@ -1060,6 +1115,10 @@ completer version config handle _shell index words
                 { prefix = "--config="
                 , word = current
                 }
+
+      | "--render-file=" `Text.isPrefixOf` current ->
+        -- TODO: File completion.
+        pure ()
 
         -- Value of `current` is the first option on the command-line.
       | null before ->
@@ -1151,6 +1210,7 @@ completer version config handle _shell index words
     topLevelOptions =
         [ "--help", "-h"
         , "--version", "-v"
+--      , "--config-print" -- TODO: Implement properly
         , "--config-print-type"
         , "--config-typecheck"
         , "--update", "-u"
@@ -1160,24 +1220,32 @@ completer version config handle _shell index words
         , "--platform=", "-p"
         , "--source=", "-s"
         , "--config="
+        , "--render-file="
+        , "--render-stdin"
         ]
 
     topLevelTerminalOptions :: List Text
     topLevelTerminalOptions =
         [ "--help", "-h"
         , "--version", "-v"
+--      , "--config-print" -- TODO: Implement properly
         , "--config-print-type"
+        , "--render-file="
+        , "--render-stdin"
         ]
 
     notDefaultModeOptions :: List Text
     notDefaultModeOptions =
         [ "--help", "-h"
         , "--version", "-v"
+--      , "--config-print" -- TODO: Implement properly
         , "--config-print-type"
         , "--config-typecheck"
         , "--update", "-u"
         , "--list", "-l"
         , "--clear-cache"
+        , "--render-file="
+        , "--render-stdin"
         ]
 
 data CompletionQuery = CompletionQuery

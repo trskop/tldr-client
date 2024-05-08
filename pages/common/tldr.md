@@ -11,8 +11,7 @@
 
 `tldr {{command}} {{subcommand}}`
 
-- Alternative way to show a tldr page for a specific command and its
-  subcommand (same effect as the above example):
+- Alternative way to show a tldr page for a specific command and its subcommand (same effect as the above example):
 
 `tldr {{command}}-{{subcommand}}`
 
@@ -23,3 +22,7 @@
 - [l]ist available tldr pages:
 
 `tldr {{-l|--list}}`
+
+- Render a CommonMark file or a content passed to standard input as tldr page:
+
+`tldr {{--render-stdin|--render-file=path/to/a/page.md}}`

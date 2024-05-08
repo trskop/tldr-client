@@ -31,6 +31,10 @@ For latest version of this document see [`ChangeLog.md on GitHub`
 * Better error reporting and correct exit codes when download and/or indexing
   fails during update of local cache.
 
+* Support `--render-stdin` and `--render-file=FILE` to render [CommonMark
+  ](https://commonmark.org/) file or content passed to standard input as a tldr
+  page.
+
 * Lots of refactoring and code reorganisation in general.
 
 

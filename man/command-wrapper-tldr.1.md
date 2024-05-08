@@ -1,6 +1,6 @@
 % COMMAND-WRAPPER-TLDR(1) TLDR Pages Client | TLDR Pages Client
 % Peter Trsko
-% 18 April 2024
+% 8 May 2024
 
 # NAME
 
@@ -34,6 +34,9 @@ TOOLSET\_COMMAND \[GLOBAL\_OPTIONS] tldr \--clear-cache
 \[{\--language=*LANGUAGE*|-L *LANGUAGE*} \[…]]
 \[{\--platform=*PLATFORM*|-p *PLATFORM*} \[…]]
 \[{\--source=*SOURCE*|-s *SOURCE*} \[…]]
+
+TOOLSET\_COMMAND \[GLOBAL\_OPTIONS] tldr {\--render-stdin|\--render-file=*FILE*}
+\[\--config=*EXPR*]
 
 TOOLSET\_COMMAND \[GLOBAL\_OPTIONS] tldr {\--config-print-type|\--config-typecheck}
 \[\--config=*EXPR*]
@@ -137,6 +140,15 @@ See *EXAMPLES* section, below, to see few basic usage examples.
 
     Individual *SOURCE*s are specified in the configuration, see
     *CONFIGURATION* section.
+
+\--render-file=*FILE*, \--render-stdin
+:   Render [CommonMark](https://commonmark.org/) *FILE* or content passed to
+    standard input as a tldr page and exit with exit code `0`.
+
+    This functionality is useful to test tldr pages when contributing. See
+    [tldr-pages contributing guide
+    ](https://github.com/tldr-pages/tldr/blob/main/CONTRIBUTING.md) for more
+    information.
 
 \--language=*LANGUAGE*, \--language *LANGUAGE*, -l *LANGUAGE*
 :   Search/list pages written in *LANGUAGE*; this option can be used multiple
@@ -388,11 +400,14 @@ in  SubcommandConfig::{
 
 command-wrapper(1)
 
-* [tldr pages](https://tldr.sh/)
+* [CommonMark](https://commonmark.org/)
 * [Dhall configuration language](https://dhall-lang.org/)
+* [no-color.org](https://no-color.org)
+* [tldr pages](https://tldr.sh/)
 * [tldr-pages client specification version 2.2
   ](https://github.com/tldr-pages/tldr/blob/v2.2/CLIENT-SPECIFICATION.md)
-* [no-color.org](https://no-color.org)
+* [tldr-pages contributing guide
+  ](https://github.com/tldr-pages/tldr/blob/main/CONTRIBUTING.md)
 
 
 # BUGS

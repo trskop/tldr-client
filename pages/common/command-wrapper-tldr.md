@@ -22,3 +22,7 @@
 - [l]ist available tldr pages:
 
 `TOOLSET_COMMAND tldr {{-l|--list}}`
+
+- Render a CommonMark file or a content passed to standard input as tldr page:
+
+`TOOLSET_COMMAND tldr {{--render-stdin|--render-file=path/to/a/page.md}}`

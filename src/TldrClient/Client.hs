@@ -15,6 +15,7 @@ module TldrClient.Client
     -- * Client action
     , Action(..)
     , RenderParams(..)
+    , RenderFileParams(..)
     , ListParams(..)
     , UpdateParams(..)
     , ClearCeacheParams(..)
@@ -64,7 +65,7 @@ import Codec.Archive.Zip qualified as Zip
     , toArchive
     )
 import Control.Lens (view)
-import Data.ByteString qualified as ByteString (hPutStr, )
+import Data.ByteString qualified as ByteString (hGetContents, hPutStr, )
 import Data.ByteString.Lazy qualified as Lazy (ByteString, )
 --import qualified Data.Output.Colour as ColourOutput (ColourOutput(Auto))
 import Data.Text (Text)
@@ -80,8 +81,8 @@ import System.Directory
     )
 import System.FilePath ((<.>), (</>))
 import System.IO.Temp (withTempDirectory, withTempFile)
-import Tldr qualified (renderPage)
-import Tldr.Types qualified as Tldr (ColorSetting({-NoColor,-} UseColor))
+import Tldr qualified (renderPage, )
+import Tldr.Types qualified as Tldr (ColorSetting({-NoColor,-} UseColor), )
 
 import Data.List.Compat (List, )
 import TldrClient.Configuration
@@ -120,6 +121,8 @@ data Action
     = Render RenderParams
     -- ^ Render a tldr page for a specific command and other attributes, see
     -- `RenderParams` for details.
+    | RenderFile RenderFileParams
+    -- ^ Render a specific tldr page file.
     | List ListParams
     -- ^ List tldr pages based on the filter, see `ListParams` for details.
     | Update UpdateParams
@@ -136,6 +139,11 @@ data RenderParams = RenderParams
     }
   deriving stock (Eq, Show)
 
+newtype RenderFileParams = RenderFileParams
+    { input :: Either Handle FilePath
+    }
+  deriving stock (Eq, Show)
+
 data ListParams = ListParams
     { platformOverride :: Maybe (SomePlatform Text)
     , localeOverride :: Maybe Locale
@@ -143,7 +151,7 @@ data ListParams = ListParams
     }
   deriving stock (Eq, Show)
 
-data UpdateParams = UpdateParams
+newtype UpdateParams = UpdateParams
     { sourcesOverride :: List Text
     }
   deriving stock (Eq, Show)
@@ -209,6 +217,22 @@ client config inputOutput action = do
 
                 Just entry ->
                     renderEntry config inputOutput cacheDirectory entry
+
+        RenderFile RenderFileParams{..} -> do
+            let withInput :: (FilePath -> IO ()) -> IO ()
+                withInput f =
+                    case input of
+                        Left h₀ -> do
+                            content <- ByteString.hGetContents h₀
+                            withTempFile cacheDirectory "page.md" \file h₁ -> do
+                                ByteString.hPutStr h₁ content
+                                hClose h₁
+                                f file
+
+                        Right file ->
+                            f file
+
+            withInput (renderPage config inputOutput)
 
         List ListParams{..} -> do
             locales <- getLocales config errorOutput localeOverride
@@ -527,7 +551,7 @@ getPlatforms platformOverride =
             Just (p :| ["common"])
 
 renderEntry :: Configuration -> InputOutput -> FilePath -> Index.Entry -> IO ()
-renderEntry config InputOutput{..} cacheDirectory Index.Entry{..} =
+renderEntry config inputOutput cacheDirectory Index.Entry{..} =
     case filePath of
         Nothing ->
             renderContent
@@ -539,23 +563,26 @@ renderEntry config InputOutput{..} cacheDirectory Index.Entry{..} =
             if fileExists
                 then renderFile path
                 else do
-                    putDebugLn config errorOutput
+                    putDebugLn config inputOutput.errorOutput
                         (path <> ": File not found, using cached content.")
                     renderContent
   where
     renderContent = do
-        putDebugLn config errorOutput "Page found in cache only."
+        putDebugLn config inputOutput.errorOutput "Page found in cache only."
 
         let file = Text.unpack command <.> "md"
         withTempFile cacheDirectory file \path h -> do
             ByteString.hPutStr h content
             hClose h
-            Tldr.renderPage path standardOutput Tldr.UseColor
+            renderPage config inputOutput path
 
     renderFile path = do
-        putDebugLn config errorOutput ("Page found: " <> path)
+        putDebugLn config inputOutput.errorOutput ("Page found: " <> path)
+        renderPage config inputOutput path
 
-        Tldr.renderPage path standardOutput Tldr.UseColor
+renderPage :: Configuration -> InputOutput -> FilePath -> IO ()
+renderPage _config InputOutput{standardOutput} file =
+    Tldr.renderPage file standardOutput Tldr.UseColor
 
 data IndexSourceParams = IndexSourceParams
     { indexFile :: FilePath
