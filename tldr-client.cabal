@@ -50,6 +50,7 @@ library
       TldrClient.Index
       TldrClient.Locale
       TldrClient.Options
+      TldrClient.Options.Shell
       TldrClient.Platform
       TldrClient.TldrPagesIndex
       TldrClient.Version

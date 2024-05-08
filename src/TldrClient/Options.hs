@@ -22,7 +22,6 @@ import Prelude ((+), fromIntegral)
 import Control.Applicative ((<**>), (<*>), (<|>), many, optional, pure, some)
 import Control.Exception (throwIO)
 import Control.Monad ((>>=), guard)
-import Control.Monad.Fail (fail)
 import Data.Bool (Bool(False), not, otherwise)
 import Data.Char (Char)
 import Data.Eq ((==))
@@ -55,7 +54,6 @@ import System.Exit
     )
 import System.IO (FilePath, Handle, IO, hIsTerminalDevice, hPutStrLn, )
 
-import Data.CaseInsensitive (CI)
 import Data.Either.Validation qualified as Validation
     ( Validation(Failure, Success)
     )
@@ -78,7 +76,6 @@ import Options.Applicative qualified as Options
     , Parser
     , ParserHelp(ParserHelp, helpBody, helpFooter, helpUsage)
     , ParserResult(CompletionInvoked, Failure, Success)
-    , ReadM
     , auto
     , defaultPrefs
     , eitherReader
@@ -96,7 +93,6 @@ import Options.Applicative qualified as Options
     , metavar
     , option
     , short
-    , str
     , strArgument
     , strOption
     )
@@ -176,6 +172,8 @@ import TldrClient.Index qualified as Index
     )
 import TldrClient.Locale (Locale, )
 import TldrClient.Locale qualified as Locale (parse, )
+import TldrClient.Options.Shell (Shell, )
+import TldrClient.Options.Shell qualified as Shell (parse, )
 import TldrClient.Platform (SomePlatform, )
 import TldrClient.Platform qualified as Platform (parse, )
 import TldrClient.Version (VersionInfo(..), prettyVersionInfo)
@@ -728,23 +726,11 @@ parse Params{..} = do
         )
 
     shellOption :: Options.Parser Shell
-    shellOption = Options.option parseShell
+    shellOption = Options.option (Options.eitherReader Shell.parse)
         ( Options.long "shell"
         <> Options.metavar "SHELL"
         <> Options.internal
         )
-      where
-        parseShell :: Options.ReadM Shell
-        parseShell = Options.str @(CI String) >>= \case
-            "bash" ->
-                pure Bash
-            "fish" ->
-                pure Fish
-            "zsh" ->
-                pure Zsh
-            _ ->
-                fail "Unrecognised shell name, expected 'bash', 'fish', or\
-                    \ 'zsh'"
 
     wordOption :: Options.Parser Text
     wordOption = Options.strOption
@@ -1010,14 +996,12 @@ mkPrettyUtils colour =
         alt :: List Options.Doc -> Options.Doc
         alt = \case
             [] -> ""
-            (d : ds) -> d <> foldMap ("|" <>) ds
+            d : ds -> d <> foldMap ("|" <>) ds
 
         ellipsis :: Options.Doc
         ellipsis = Options.brackets "..."
 
     in  PrettyUtils{..}
-
-data Shell = Bash | Fish | Zsh
 
 completer
     :: Version
