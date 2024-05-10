@@ -82,7 +82,7 @@ import System.Directory
 import System.FilePath ((<.>), (</>))
 import System.IO.Temp (withTempDirectory, withTempFile)
 import Tldr qualified (renderPage, )
-import Tldr.Types qualified as Tldr (ColorSetting({-NoColor,-} UseColor), )
+import Tldr.Types qualified as Tldr (ColorSetting(NoColor, UseColor), )
 
 import Data.List.Compat (List, )
 import TldrClient.Configuration
@@ -92,6 +92,7 @@ import TldrClient.Configuration
     , SourceFormat(TldrPagesWithIndex, TldrPagesWithoutIndex)
     , getCacheDirectory
     , getLocales
+    , getUseColours
     , putDebugLn
     , putErrorLn
     , putWarningLn
@@ -521,6 +522,8 @@ getPlatforms
     --   information.
     --
     -- * @`Just` p@ — use specified platform @p@ instead of current platform.
+    --
+    -- * @`Just` `AllPlatforms`@ — don't filter pages by platform.
     -> Maybe (NonEmpty Text)
     -- ^ Platform filter for when we are looking up a page.
     --
@@ -580,9 +583,13 @@ renderEntry config inputOutput cacheDirectory Index.Entry{..} =
         putDebugLn config inputOutput.errorOutput ("Page found: " <> path)
         renderPage config inputOutput path
 
+-- | Render a file as a tldr page.
 renderPage :: Configuration -> InputOutput -> FilePath -> IO ()
-renderPage _config InputOutput{standardOutput} file =
-    Tldr.renderPage file standardOutput Tldr.UseColor
+renderPage config InputOutput{standardOutput} file = do
+    colourSetting <- do
+        useColours <- getUseColours config standardOutput
+        pure if useColours then Tldr.UseColor else Tldr.NoColor
+    Tldr.renderPage file standardOutput colourSetting
 
 data IndexSourceParams = IndexSourceParams
     { indexFile :: FilePath

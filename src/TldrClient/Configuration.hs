@@ -250,6 +250,8 @@ mkDefConfiguration isStandalone possiblySource verbosity colourOutput
     assetsUrl1 =
         "https://github.com/tldr-pages/tldr/releases/latest/download/tldr.zip"
 
+-- | Apply colour usage preferences and return return `True` when colours
+-- should be used when writting into the specified `Handle`.
 getUseColours :: Configuration -> Handle -> IO Bool
 getUseColours Configuration{colourOutput} handle =
     shouldUseColours handle colourOutput

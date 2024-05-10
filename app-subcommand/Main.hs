@@ -51,13 +51,15 @@ import System.FilePath ((<.>), (</>))
 
 import TldrClient.Client (InputOutput(..), client)
 import TldrClient.Configuration
-    ( Configuration(prefixes)
-    , Source(Source, format, location, name)
+    ( Source(Source, format, location, name)
     , SourceFormat(TldrPagesWithoutIndex)
     , SourceLocation(Local)
     , decodeSubcommandConfiguration
     , mkDefConfiguration
     )
+import TldrClient.Configuration qualified as Configuration
+    ( Configuration(colourOutput, prefixes, verbosity)
+    , )
 import TldrClient.Options qualified as Options
     ( Params(..)
     , ProgramName(CommandWrapperSubcommand)
@@ -79,7 +81,7 @@ main = do
     (config, action) <- Options.parse Options.Params
         { version
         , colourOutput
-        , verbosity
+        , verbosity = Just verbosity
         , programName = Options.CommandWrapperSubcommand toolset subcommand
         , configFile
         , configurationExpression
@@ -92,24 +94,23 @@ main = do
                 , location =
                     Local (dataDirectory </> "tldr" </> "pages" </> toolset)
                 }
-        , runCompletion =
-            Options.completer version . updatePrefixes toolsetName
+        , updateConfig = \updateVerbosity updateColourOutput cfg -> cfg
+            { Configuration.verbosity = updateVerbosity cfg.verbosity
+            , Configuration.colourOutput = updateColourOutput cfg.colourOutput
+            , Configuration.prefixes =
+                if toolsetName `elem` cfg.prefixes
+                    then cfg.prefixes
+                    else cfg.prefixes <> [toolsetName]
+            }
+        , runCompletion = Options.completer version
         , inputOutput
         }
-    client (updatePrefixes toolsetName config) inputOutput action
+    client config inputOutput action
   where
     inputOutput = InputOutput
         { errorOutput = stderr
         , standardOutput = stdout
         }
-
-updatePrefixes :: Text -> Configuration -> Configuration
-updatePrefixes toolsetName config = config
-    { prefixes =
-        if toolsetName `elem` config.prefixes
-            then config.prefixes
-            else config.prefixes <> [toolsetName]
-    }
 
 data Environment = Environment
     { toolsetExe :: FilePath

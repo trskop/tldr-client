@@ -27,7 +27,7 @@ import Data.Char (Char)
 import Data.Either (Either(Left, Right), )
 import Data.Eq ((==))
 import Data.Foldable (any, concat, foldMap, for_, length, null, sum)
-import Data.Function (($), (.))
+import Data.Function (($), (.), const, id, )
 import Data.Functor (($>), (<$), (<$>), (<&>), fmap)
 import Data.Int (Int)
 import Data.List qualified as List
@@ -39,7 +39,7 @@ import Data.List qualified as List
     , take
     )
 import Data.List.NonEmpty qualified as NonEmpty (toList)
-import Data.Maybe (Maybe(Just, Nothing), maybe)
+import Data.Maybe (Maybe(Just, Nothing), fromMaybe, maybe, )
 import Data.Semigroup ((<>))
 import Data.String (String, fromString)
 import Data.String qualified as String (words)
@@ -58,7 +58,10 @@ import System.IO (FilePath, Handle, IO, hIsTerminalDevice, hPutStrLn, stdin, )
 import Data.Either.Validation qualified as Validation
     ( Validation(Failure, Success)
     )
-import Data.Output.Colour (ColourOutput)
+import Data.Output.Colour (ColourOutput, )
+import Data.Output.Colour qualified as ColourOutput
+    ( ColourOutput(Always, Auto, Never)
+    , )
 import Data.Text (Text)
 import Data.Text qualified as Text
     ( drop
@@ -69,7 +72,8 @@ import Data.Text qualified as Text
     , unlines
     )
 import Data.Text.IO qualified as Text (hPutStr, hPutStrLn, )
-import Data.Verbosity (Verbosity)
+import Data.Verbosity (Verbosity, )
+import Data.Verbosity qualified as Verbosity (Verbosity(Normal), )
 import Dhall qualified (Decoder(expected), input, inputFile)
 import Dhall.Version (dhallVersion)
 import Options.Applicative qualified as Options
@@ -185,6 +189,9 @@ import TldrClient.Platform qualified as Platform (parse, )
 import TldrClient.Version (VersionInfo(..), prettyVersionInfo)
 
 
+-- | Data type representing all the primary modes of operation of the
+-- application. Only `Execute` data constructor represents the actual
+-- tldr-pages client functionality.
 data Mode
     = Execute (Maybe Text) Client.Action
     -- ^ We want to execute the application with the given configuration. If
@@ -251,7 +258,7 @@ programNameToDoc utils = \case
 -- usage line is useful only for Command Wrapper subcommands.
 programNameToHelpDoc :: PrettyUtils -> ProgramName -> Maybe Options.Doc
 programNameToHelpDoc utils = \case
-    StandaloneApplication _ ->
+    StandaloneApplication{} ->
         Nothing
     CommandWrapperSubcommand toolset subcommand ->
         Just $ Options.fillSep
@@ -264,11 +271,17 @@ programNameToHelpDoc utils = \case
 
 -- | Parameters passed to `parse` function to avoid ad-hoc function arguments
 -- antipattern.
+--
+-- Keeping @config@ polymorphic forces us to push relevant logic to the caller.
+-- That way it's not possible for the options-related code to use configuration
+-- outside of what is provided. The reason for all of this is to make sure that
+-- the code can operate correctly in different contexts, like standalone app
+-- and CommandWrapper subcommand.
 data Params config = Params
     { version :: Version
     -- ^ Application version printed in @--version@ mode.
     , colourOutput :: ColourOutput
-    , verbosity :: Verbosity
+    , verbosity :: Maybe Verbosity
     , programName :: ProgramName
     -- ^ Command \/ application name as it is visible to the user.
     , configFile :: FilePath
@@ -286,6 +299,12 @@ data Params config = Params
     -- ^ Construct default configuration if there is no configuration
     -- available. The `String` parameter is rendered
     -- @programName :: `ProgramName`@ field value.
+    , updateConfig
+        :: (Verbosity -> Verbosity)
+        -> (ColourOutput -> ColourOutput)
+        -> config
+        -> config
+    -- ^ Update configuration to reflect current user preferences.
     , runCompletion
         :: config -> Handle -> Shell -> Maybe Word -> List Text -> IO ()
     -- ^ Command-line completer.
@@ -317,7 +336,7 @@ parse :: forall config. Params config -> IO (config, Client.Action)
 parse Params{..} = do
     execOptionsParser >>= \case
         Execute possiblyConfig action ->
-            (, action) <$> parseConfig possiblyConfig
+            (, action) . updateConfig' <$> parseConfig possiblyConfig
 
         Typecheck config -> do
             -- TODO: When there is no config file (mkDefault used) then we
@@ -371,11 +390,19 @@ parse Params{..} = do
             exitSuccess
 
         Complete possiblyConfig shell index words -> do
-            config <- parseConfig possiblyConfig
+            config <- updateConfig' <$> parseConfig possiblyConfig
             runCompletion config standardOutput shell index words
             exitSuccess
   where
     Client.InputOutput{errorOutput, standardOutput} = inputOutput
+
+    updateConfig' =
+        let updateVerbosity = maybe id const verbosity
+            updateColourOutput = case colourOutput of
+                ColourOutput.Always -> const ColourOutput.Always
+                ColourOutput.Auto   -> id
+                ColourOutput.Never  -> const ColourOutput.Never
+        in  updateConfig updateVerbosity updateColourOutput
 
     parseConfig :: Maybe Text -> IO config
     parseConfig commandLineExpr = do
@@ -397,7 +424,10 @@ parse Params{..} = do
                             then
                                 Dhall.inputFile decoder' configFile
                             else
-                                mkDefault verbosity colourOutput programNameStr
+                                mkDefault
+                                    (fromMaybe Verbosity.Normal verbosity)
+                                    colourOutput
+                                    programNameStr
 
     printType :: Handle -> IO ()
     printType handle = case Dhall.expected (decoder programNameStr) of

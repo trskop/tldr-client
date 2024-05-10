@@ -36,7 +36,7 @@ import Data.Output.Colour qualified as ColourOutput
 import Data.Text (Text)
 import Data.Text qualified as Text (unpack)
 import Data.Verbosity (Verbosity)
-import Data.Verbosity qualified as Verbosity (Verbosity(Annoying, Normal))
+import Data.Verbosity qualified as Verbosity (Verbosity(Annoying, Normal), )
 import System.Directory (XdgDirectory(XdgConfig), getXdgDirectory)
 import System.Environment.Parser (ParseEnvError(..), optionalVar, parseEnvIO)
 
@@ -45,6 +45,9 @@ import TldrClient.Configuration
     ( decodeStandaloneConfiguration
     , mkDefConfiguration
     )
+import TldrClient.Configuration qualified as Configuration
+    ( Configuration(colourOutput, verbosity)
+    , )
 import TldrClient.Options qualified as Options
     ( Params(..)
     , ProgramName(StandaloneApplication)
@@ -58,7 +61,7 @@ import Paths_tldr_client (version)
 main :: IO ()
 main = do
     env@Environment{..} <- parseEnvironment inputOutput
-    when (verbosity >= Verbosity.Annoying) do
+    when (fromMaybe Verbosity.Normal verbosity >= Verbosity.Annoying) do
         hPutStrLn inputOutput.errorOutput
             (programName <> ": Debug: " <> show env)
     (config, action) <- Options.parse Options.Params
@@ -71,6 +74,10 @@ main = do
         , decoder = decodeStandaloneConfiguration
         , encoder = show -- TODO
         , mkDefault = mkDefConfiguration True{-is standalone app-} Nothing
+        , updateConfig = \updateVerbosity updateColourOutput cfg -> cfg
+            { Configuration.verbosity = updateVerbosity cfg.verbosity
+            , Configuration.colourOutput = updateColourOutput cfg.colourOutput
+            }
         , runCompletion = Options.completer version
         , inputOutput
         }
@@ -85,7 +92,7 @@ data Environment = Environment
     { programName :: String
     , configFile :: FilePath
     , configurationExpression :: Maybe Text
-    , verbosity :: Verbosity
+    , verbosity :: Maybe Verbosity
     , colourOutput :: ColourOutput
     }
   deriving stock (Show)
@@ -99,7 +106,7 @@ parseEnvironment InputOutput{errorOutput} = do
         configurationExpression <- optionalVar "TLDR_CONFIG"
         pure Environment
             { configFile = "tldr/config.dhall"
-            , verbosity = Verbosity.Normal
+            , verbosity = Nothing
             , ..
             }
 
