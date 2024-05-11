@@ -81,6 +81,9 @@ import TldrClient.Locale (Locale, )
 import TldrClient.Locale qualified as Locale (decode, languagePreference, )
 
 
+-- | `Configuration` data type represents both configuration file and run-time
+-- configuration. For that reason there are fields that are not represented in
+-- the associated Dhall expressions.
 data Configuration = Configuration
     { programName :: String
     -- ^ Program name as it should be used in error, debug, and other messages.
@@ -146,8 +149,19 @@ decodeSubcommandConfiguration verbosity colourOutput programName =
             , ..
             }
 
+-- | Represents a source of tldr-pages. This is used to update the offline
+-- cache so that the tldr-pages client can access them.
+--
+-- Dhall representation:
+--
+-- > { name : Text
+-- > , format : SourceFormat.Type
+-- > , location : SourceLocation.Type
+-- > }
 data Source = Source
     { name :: Text
+    -- ^ Name of the source is used to identify specific source. See also
+    -- @--source=SOURCE@ option.
     , format :: SourceFormat
     , location :: SourceLocation
     }
@@ -160,6 +174,12 @@ decodeSource = Dhall.record do
     location <- Dhall.field "location" decodeSourceLocation
     pure Source{..}
 
+-- | Location of the tldr-pages `Source` used by the client. See `Source` for
+-- more information.
+--
+-- Dhall representation:
+--
+-- > < Local : Text | Remote : NonEmpty Text >
 data SourceLocation
     = Local FilePath
     -- ^ The location can be either a directory or an archive.

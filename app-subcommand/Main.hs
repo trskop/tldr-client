@@ -14,60 +14,61 @@ module Main
     )
   where
 
-import Prelude (maxBound, minBound)
+import Prelude (maxBound, minBound, )
 
-import Control.Applicative (pure)
-import Control.Monad (guard, when)
-import Data.Bool (Bool(False), not)
-import Data.Char qualified as Char (toLower)
-import Data.Foldable (elem)
-import Data.Function (($), (.))
-import Data.Functor ((<$), (<$>))
-import Data.List qualified as List (intercalate)
-import Data.Maybe (Maybe(Just), maybe)
-import Data.Ord ((>=))
-import Data.Semigroup ((<>))
-import Data.String (String)
-import Data.String qualified as String (unwords)
-import System.Exit (ExitCode(ExitFailure), exitWith)
-import System.IO (FilePath, IO, hPutStrLn, stderr, stdout)
-import Text.Show (Show, show)
+import Control.Applicative (pure, )
+import Control.Monad (guard, when, )
+import Data.Bool (Bool(False), not, )
+import Data.Char qualified as Char (toLower, )
+import Data.Foldable (elem, )
+import Data.Function (($), (.), )
+import Data.Functor ((<$), (<$>), )
+import Data.List qualified as List (intercalate, )
+import Data.Maybe (Maybe(Just), maybe, )
+import Data.Ord ((>=), )
+import Data.Semigroup ((<>), )
+import Data.String (String, )
+import Data.String qualified as String (unwords, )
+import System.Exit (ExitCode(ExitFailure), exitWith, )
+import System.IO (FilePath, IO, hPutStrLn, stderr, stdout, )
+import Text.Show (Show, show, )
 
-import Control.Monad.Except (throwError)
-import Data.CaseInsensitive qualified as CI (mk)
-import Data.Output.Colour (ColourOutput)
+import Control.Monad.Except (throwError, )
+import Data.CaseInsensitive qualified as CI (mk, )
+import Data.Output.Colour (ColourOutput, )
 import Data.Output.Colour qualified as ColourOutput
     ( ColourOutput(Always, Auto, Never)
     , parse
     , toString
-    )
-import Data.Text (Text)
-import Data.Text qualified as Text (null, unpack)
-import Data.Verbosity (Verbosity)
-import Data.Verbosity qualified as Verbosity (Verbosity(Annoying), parse)
-import System.Directory (XdgDirectory(XdgConfig, XdgData), getXdgDirectory)
-import System.Environment.Parser (ParseEnv, ParseEnvError(..), parseEnvIO, var)
-import System.FilePath ((<.>), (</>))
+    , )
+import Data.Text (Text, )
+import Data.Text qualified as Text (null, unpack, )
+import Data.Verbosity (Verbosity, )
+import Data.Verbosity qualified as Verbosity (Verbosity(Annoying), parse, )
+import System.Directory (XdgDirectory(XdgConfig, XdgData), getXdgDirectory, )
+import System.Environment.Parser (ParseEnv, ParseEnvError(..), parseEnvIO, var, )
+import System.FilePath ((<.>), (</>), )
 
-import TldrClient.Client (InputOutput(..), client)
+import TldrClient.Client (InputOutput(..), client, )
 import TldrClient.Configuration
     ( Source(Source, format, location, name)
     , SourceFormat(TldrPagesWithoutIndex)
     , SourceLocation(Local)
     , decodeSubcommandConfiguration
     , mkDefConfiguration
-    )
+    , )
 import TldrClient.Configuration qualified as Configuration
     ( Configuration(colourOutput, prefixes, verbosity)
     , )
 import TldrClient.Options qualified as Options
-    ( Params(..)
+    ( CompleterParams(..)
+    , Params(..)
     , ProgramName(CommandWrapperSubcommand)
     , completer
     , parse
-    )
+    , )
 
-import Paths_tldr_client (version)
+import Paths_tldr_client (version, )
 
 
 main :: IO ()
@@ -102,7 +103,8 @@ main = do
                     then cfg.prefixes
                     else cfg.prefixes <> [toolsetName]
             }
-        , runCompletion = Options.completer version
+        , runCompletion = \cfg handle shell index words ->
+            Options.completer Options.CompleterParams{version, config = cfg, ..}
         , inputOutput
         }
     client config inputOutput action

@@ -14,48 +14,49 @@ module Main
     )
   where
 
-import Control.Applicative (pure)
-import Control.Monad (when)
-import Data.Bool (Bool(True))
-import Data.Function (($))
-import Data.Functor ((<$>))
-import Data.Maybe (Maybe(Nothing), fromMaybe)
-import Data.Ord ((>=))
-import Data.Semigroup ((<>))
+import Control.Applicative (pure, )
+import Control.Monad (when, )
+import Data.Bool (Bool(True), )
+import Data.Function (($), )
+import Data.Functor ((<$>), )
+import Data.Maybe (Maybe(Nothing), fromMaybe, )
+import Data.Ord ((>=), )
+import Data.Semigroup ((<>), )
 import Data.String (String)
-import System.Environment (getProgName)
-import System.Exit (ExitCode(ExitFailure), exitWith)
-import System.IO (FilePath, IO, hPutStrLn, stderr, stdout)
-import Text.Show (Show, show)
+import System.Environment (getProgName, )
+import System.Exit (ExitCode(ExitFailure), exitWith, )
+import System.IO (FilePath, IO, hPutStrLn, stderr, stdout, )
+import Text.Show (Show, show, )
 
-import Data.Output.Colour (ColourOutput)
+import Data.Output.Colour (ColourOutput, )
 import Data.Output.Colour qualified as ColourOutput
     ( ColourOutput(Auto)
     , noColorEnvVar
-    )
-import Data.Text (Text)
-import Data.Text qualified as Text (unpack)
-import Data.Verbosity (Verbosity)
+    , )
+import Data.Text (Text, )
+import Data.Text qualified as Text (unpack, )
+import Data.Verbosity (Verbosity, )
 import Data.Verbosity qualified as Verbosity (Verbosity(Annoying, Normal), )
-import System.Directory (XdgDirectory(XdgConfig), getXdgDirectory)
-import System.Environment.Parser (ParseEnvError(..), optionalVar, parseEnvIO)
+import System.Directory (XdgDirectory(XdgConfig), getXdgDirectory, )
+import System.Environment.Parser (ParseEnvError(..), optionalVar, parseEnvIO, )
 
-import TldrClient.Client (InputOutput(..), client)
+import TldrClient.Client (InputOutput(..), client, )
 import TldrClient.Configuration
     ( decodeStandaloneConfiguration
     , mkDefConfiguration
-    )
+    , )
 import TldrClient.Configuration qualified as Configuration
     ( Configuration(colourOutput, verbosity)
     , )
 import TldrClient.Options qualified as Options
-    ( Params(..)
+    ( CompleterParams(..)
+    , Params(..)
     , ProgramName(StandaloneApplication)
     , completer
     , parse
-    )
+    , )
 
-import Paths_tldr_client (version)
+import Paths_tldr_client (version, )
 
 
 main :: IO ()
@@ -78,7 +79,8 @@ main = do
             { Configuration.verbosity = updateVerbosity cfg.verbosity
             , Configuration.colourOutput = updateColourOutput cfg.colourOutput
             }
-        , runCompletion = Options.completer version
+        , runCompletion = \cfg handle shell index words ->
+            Options.completer Options.CompleterParams{version, config = cfg, ..}
         , inputOutput
         }
     client config inputOutput action
